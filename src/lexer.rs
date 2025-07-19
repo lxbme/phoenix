@@ -1,5 +1,6 @@
 #[derive(Debug)]
 
+#[derive(PartialEq)]
 pub enum Token {
     EOF,
 
@@ -56,7 +57,7 @@ pub fn lexer(mut scanner:Scanner) -> Vec<Token> {
 	// parsing digit
 	if character.is_ascii_digit() || character == '.' {
 	    let mut partial: String;
-	    (scanner, partial) = consume_until_whitespace(scanner.clone());
+	    (scanner, partial) = consume_until_whitespace_content(scanner.clone());
 	    partial.insert(0, character);
 	    //println!("{}", partial);
 	    let digit: f64 = partial.parse().expect(format!("Invalid token: {}", partial).as_str());
@@ -66,7 +67,7 @@ pub fn lexer(mut scanner:Scanner) -> Vec<Token> {
 
 	if character.is_alphabetic() || character == '_' {
 	    let mut partial: String;
-	    (scanner, partial) = consume_until_whitespace(scanner.clone());
+	    (scanner, partial) = consume_until_whitespace_content(scanner.clone());
 	    partial.insert(0, character);
 	    if vec!["def", "dow", "if", "else", "print", "printa"].contains(&partial.as_str()) {
 		match partial.as_str() {
@@ -119,7 +120,7 @@ fn skip_content(mut scanner: Scanner) -> Scanner {
     scanner
 }
 
-fn consume_until_whitespace(mut scanner: Scanner) -> (Scanner, String) {
+fn consume_until_whitespace_content(mut scanner: Scanner) -> (Scanner, String) {
     let mut partial: String = String::new();
     loop {
 	let character = match scanner.get_char() {
@@ -132,4 +133,4 @@ fn consume_until_whitespace(mut scanner: Scanner) -> (Scanner, String) {
     }
     scanner.current_idx -= 1;
     (scanner, partial)
-} 
+}
