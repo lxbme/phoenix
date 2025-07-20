@@ -1,8 +1,8 @@
-#[derive(Debug)]
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     EOF,
+    Placeholder,
 
     Operator(char),
     Identifier(String),
@@ -13,6 +13,7 @@ pub enum Token {
     Else,
     Dow,
     Dollar,           // $
+    Var,
 
     LeftBracket,      // {
     RightBracket,     // }
@@ -69,7 +70,7 @@ pub fn lexer(mut scanner:Scanner) -> Vec<Token> {
 	    let mut partial: String;
 	    (scanner, partial) = consume_until_whitespace_content(scanner.clone());
 	    partial.insert(0, character);
-	    if vec!["def", "dow", "if", "else", "print", "printa"].contains(&partial.as_str()) {
+	    if vec!["def", "dow", "if", "else", "print", "printa", "var"].contains(&partial.as_str()) {
 		match partial.as_str() {
 		    "def" => tokens.push(Token::Def),
 		    "dow" => tokens.push(Token::Dow),
@@ -77,6 +78,7 @@ pub fn lexer(mut scanner:Scanner) -> Vec<Token> {
 		    "else" => tokens.push(Token::Else),
 		    "print" => tokens.push(Token::Print),
 		    "printa" => tokens.push(Token::Printa),
+		    "var" => tokens.push(Token::Var),
 		    &_ => eprintln!("Undefined situation")
 		}
 	    } else {
@@ -85,7 +87,7 @@ pub fn lexer(mut scanner:Scanner) -> Vec<Token> {
 	    continue;
 	}
 
-	if  vec!['+', '-', '*', '/', '!', '=', '~'].contains(&character) {
+	if  vec!['+', '-', '*', '/', '!', '=', '~', '>', '<'].contains(&character) {
 	    tokens.push(Token::Operator(character));
 	    continue;
 	}
