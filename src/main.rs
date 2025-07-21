@@ -1,4 +1,5 @@
 use std::fs;
+use colored::Colorize;
 
 mod lexer;
 mod analyzer;
@@ -22,16 +23,17 @@ fn main() {
     
     //println!("Origin tokens: {:?} \n", tokens);
     match analyzer(&tokens) {
-	Ok(_) => println!("Grammar check passed."),
-	Err(e) => eprintln!("{}", e)
+	Ok(_) => println!("{}", "[Info] Grammar check passed.".green()),
+	//Ok(_) => {}
+	Err(e) => eprintln!("[ERROR] {}", e.red())
     };
     let opcodes = match compiler(tokens) {
 	//Ok(opcodes) => println!{"Opcode: {:?}", opcodes},
 	Ok(opcodes) => opcodes,
-	Err(e) => {eprintln!("{}", e); return ;}
+	Err(e) => {eprintln!("[ERROR] {}", e.red()); return ;}
     };
     match run_opcode(opcodes) {
-	Ok(_) => println!("\nfinish running"),
-	Err(e) => eprintln!("{}", e)
+	Ok(_) => println!("{}", "\n[Info] finished...".green()),
+	Err(e) => eprintln!("[ERROR] {}", e.red())
     }
 }

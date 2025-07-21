@@ -243,7 +243,7 @@ pub fn run_opcode(opcodes: Vec<Opcode>) -> Result<(), String> {
 
 fn safe_float_to_char(f: f64) -> Option<char> {
     let floored = f.floor();
-    if floored >= 32.0 && floored <= 126.0 {
+    if floored >= 0.0 && floored <= 126.0 {
         Some(floored as u8 as char)
     } else {
         None 

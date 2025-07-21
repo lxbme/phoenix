@@ -27,4 +27,19 @@ if {
 	4 5 6 $swap
 }
 
-print 32 printa print 32 printa print
+print 32 printa print 32 printa print 10[\n] printa
+
+def print_string[char_num, ...] {
+	var char_num char_num !
+	var idx 1 idx !
+	dow {
+		printa
+		1 idx + 
+		idx !
+		idx char_num <
+	}
+}
+
+100 108 114 111 119 32 111 108 108 101 72 [Hello world] 11
+$print_string[12 -> 0]
+
