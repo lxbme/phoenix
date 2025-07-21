@@ -66,11 +66,14 @@ pub fn lexer(mut scanner:Scanner) -> Vec<Token> {
 	    continue;
 	}
 
+	// parsing keywords and identifiers
 	if character.is_alphabetic() || character == '_' {
 	    let mut partial: String;
 	    (scanner, partial) = consume_until_whitespace_content(scanner.clone());
 	    partial.insert(0, character);
+	    
 	    if vec!["def", "dow", "if", "else", "print", "printa", "var"].contains(&partial.as_str()) {
+		// keywords
 		match partial.as_str() {
 		    "def" => tokens.push(Token::Def),
 		    "dow" => tokens.push(Token::Dow),
@@ -82,6 +85,7 @@ pub fn lexer(mut scanner:Scanner) -> Vec<Token> {
 		    &_ => eprintln!("Undefined situation")
 		}
 	    } else {
+		//identifiers
 		tokens.push(Token::Identifier(partial));
 	    }
 	    continue;

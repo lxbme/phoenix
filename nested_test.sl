@@ -12,6 +12,8 @@ def foo {
 	$swap
 }
 
+10 100 < 
+
 if {
 	1 2 3
 	if {
@@ -24,3 +26,5 @@ if {
 } else {
 	4 5 6 $swap
 }
+
+print 32 printa print 32 printa print

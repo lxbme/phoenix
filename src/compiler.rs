@@ -42,13 +42,15 @@ enum Context {
 
 pub fn compiler(tokens: Vec<Token>) -> Result<Vec<Opcode>, String> {
     let mut result: Vec<Opcode> = Vec::new();
-    //extract function fragments
+    // extract function fragments
     let (mut tokens, func_slices) = function_picker(tokens);
     for mut func_slice in func_slices {
 	tokens.append(&mut func_slice);
     } // append functions to tokens
 
+    // content control stack 
     let mut context_stack: Vec<Context> = Vec::new();
+    // function index table
     let mut func_idx_table: HashMap<String, usize> = HashMap::new();
     
     let mut idx = 0;
