@@ -17,7 +17,7 @@ fn read_file(file_name: &String) -> String {
 }
 
 fn main() {
-    let content: String = read_file(&("./nested_test.sl".to_string()));
+    let content: String = read_file(&("./test_code/nested_test.sl".to_string()));
     let scanner = Scanner::new(content);
     let tokens = lexer(scanner);
 
