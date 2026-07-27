@@ -21,31 +21,54 @@ pub enum Token {
     Printa,
 }
 
-#[derive(Clone)]
 pub struct Scanner {
-    contents: String,
+    chars: Vec<char>,
     current_idx: usize,
 }
 
 impl Scanner {
     pub fn new(contents: String) -> Self {
         Self {
-            contents,
+            chars: contents.chars().collect(),
             current_idx: 0,
         }
     }
 
-    pub fn get_char(&mut self) -> Option<char> {
-        let result = self.contents.chars().nth(self.current_idx)?;
+    fn peek(&self) -> Option<char> {
+        self.chars.get(self.current_idx).copied()
+    }
+
+    fn advance(&mut self) -> Option<char> {
+        let c = self.peek()?;
         self.current_idx += 1;
-        Some(result)
+        Some(c)
+    }
+
+    fn take_while(&mut self, pred: impl Fn(char) -> bool) -> String {
+        let mut s = String::new();
+        while let Some(c) = self.peek() {
+            if !pred(c) {
+                break;
+            }
+            s.push(c);
+            self.current_idx += 1;
+        }
+        s
+    }
+
+    fn skip_comment(&mut self) {
+        while let Some(c) = self.advance() {
+            if c == ']' {
+                return;
+            }
+        }
     }
 }
 
 pub fn lexer(mut scanner: Scanner) -> Vec<Token> {
     let mut tokens = Vec::<Token>::new();
     loop {
-        let character = match scanner.get_char() {
+        let character = match scanner.advance() {
             Some(character) => character,
             None => {
                 tokens.push(Token::EOF);
@@ -58,15 +81,14 @@ pub fn lexer(mut scanner: Scanner) -> Vec<Token> {
         };
 
         if character == '[' {
-            scanner = skip_content(scanner.clone());
+            scanner.skip_comment();
             continue;
         }
 
         // parsing digit
         if character.is_ascii_digit() || character == '.' {
-            let mut partial: String;
-            (scanner, partial) = consume_until_whitespace_content(scanner.clone());
-            partial.insert(0, character);
+            let mut partial = String::from(character);
+            partial.push_str(&scanner.take_while(|c| c.is_ascii_digit() || c == '.'));
             //println!("{}", partial);
             let digit: f64 = partial
                 .parse()
@@ -77,9 +99,8 @@ pub fn lexer(mut scanner: Scanner) -> Vec<Token> {
 
         // parsing keywords and identifiers
         if character.is_alphabetic() || character == '_' {
-            let mut partial: String;
-            (scanner, partial) = consume_until_whitespace_content(scanner.clone());
-            partial.insert(0, character);
+            let mut partial = String::from(character);
+            partial.push_str(&scanner.take_while(|c| c.is_alphanumeric() || c == '_'));
 
             if vec!["def", "dow", "if", "else", "print", "printa", "var"]
                 .contains(&partial.as_str())
@@ -123,36 +144,4 @@ pub fn lexer(mut scanner: Scanner) -> Vec<Token> {
         }
     }
     tokens
-}
-
-fn skip_content(mut scanner: Scanner) -> Scanner {
-    loop {
-        match scanner.get_char() {
-            Some(character) => {
-                if character == ']' {
-                    break;
-                };
-            }
-            None => break,
-        };
-    }
-    scanner
-}
-
-fn consume_until_whitespace_content(mut scanner: Scanner) -> (Scanner, String) {
-    let mut partial: String = String::new();
-    loop {
-        let character = match scanner.get_char() {
-            Some(chara) => chara,
-            None => break,
-        };
-
-        if character.is_whitespace() || character == '[' {
-            break;
-        } else {
-            partial.push(character)
-        };
-    }
-    scanner.current_idx -= 1;
-    (scanner, partial)
 }
