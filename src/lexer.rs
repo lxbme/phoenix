@@ -1,3 +1,8 @@
+#[derive(Debug)]
+pub enum LexerError {
+    InvalidToken {token: String, at: usize},
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     EOF,
@@ -65,7 +70,7 @@ impl Scanner {
     }
 }
 
-pub fn lexer(mut scanner: Scanner) -> Vec<Token> {
+pub fn lexer(mut scanner: Scanner) -> Result<Vec<Token>, LexerError> {
     let mut tokens = Vec::<Token>::new();
     loop {
         let character = match scanner.advance() {
@@ -90,9 +95,11 @@ pub fn lexer(mut scanner: Scanner) -> Vec<Token> {
             let mut partial = String::from(character);
             partial.push_str(&scanner.take_while(|c| c.is_ascii_digit() || c == '.'));
             //println!("{}", partial);
-            let digit: f64 = partial
-                .parse()
-                .expect(format!("Invalid token: {}", partial).as_str());
+            let digit = if let Ok(digit) = partial.parse() {
+                digit
+            } else {
+                return Err(LexerError::InvalidToken { token: partial, at: scanner.current_idx});
+            };
             tokens.push(Token::Digit(digit));
             continue;
         }
@@ -143,5 +150,5 @@ pub fn lexer(mut scanner: Scanner) -> Vec<Token> {
             continue;
         }
     }
-    tokens
+    Ok(tokens)
 }

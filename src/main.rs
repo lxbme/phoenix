@@ -19,7 +19,10 @@ fn read_file(file_name: &String) -> String {
 fn main() {
     let content: String = read_file(&("./test_code/nested_test.sl".to_string()));
     let scanner = Scanner::new(content);
-    let tokens = lexer(scanner);
+    let tokens = match lexer(scanner)  {
+        Ok(tokens) => tokens,
+        Err(e) => {println!("{:?}", e); return;},
+    };
 
     //println!("Origin tokens: {:?} \n", tokens);
     match analyzer(&tokens) {
