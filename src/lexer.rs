@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub enum LexerError {
-    InvalidToken {token: String, at: usize},
+    InvalidToken { token: String, at: usize },
+    UnexpectedChar { ch: char, at: usize },
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -98,7 +99,10 @@ pub fn lexer(mut scanner: Scanner) -> Result<Vec<Token>, LexerError> {
             let digit = if let Ok(digit) = partial.parse() {
                 digit
             } else {
-                return Err(LexerError::InvalidToken { token: partial, at: scanner.current_idx});
+                return Err(LexerError::InvalidToken {
+                    token: partial,
+                    at: scanner.current_idx,
+                });
             };
             tokens.push(Token::Digit(digit));
             continue;
@@ -149,6 +153,11 @@ pub fn lexer(mut scanner: Scanner) -> Result<Vec<Token>, LexerError> {
             tokens.push(Token::Dollar);
             continue;
         }
+
+        return Err(LexerError::UnexpectedChar {
+            ch: character,
+            at: scanner.current_idx,
+        });
     }
     Ok(tokens)
 }
