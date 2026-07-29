@@ -3,25 +3,32 @@ use std::fs;
 
 mod analyzer;
 mod compiler;
+mod diag;
 mod lexer;
+mod source;
 mod vm;
 use analyzer::analyzer;
 use compiler::compiler;
 use lexer::{Scanner, lexer};
 use vm::run_opcode;
 
-fn read_file(file_name: &String) -> String {
+fn read_file(file_name: &str) -> String {
     let content =
         fs::read_to_string(file_name).expect(format!("Cannot read file: {}", file_name).as_str());
     content
 }
 
 fn main() {
-    let content: String = read_file(&("./test_code/nested_test.sl".to_string()));
-    let scanner = Scanner::new(content);
-    let tokens = match lexer(scanner)  {
+    let path = "./test_code/nested_test.sl".to_string();
+    let content: String = read_file(&path);
+    let source = source::Source::new(path, content);
+    let scanner = Scanner::new(&source);
+    let tokens = match lexer(scanner) {
         Ok(tokens) => tokens,
-        Err(e) => {println!("{:?}", e); return;},
+        Err(e) => {
+            println!("{:?}", e);
+            return;
+        }
     };
 
     //println!("Origin tokens: {:?} \n", tokens);

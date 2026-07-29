@@ -1,3 +1,5 @@
+use crate::source::Source;
+
 #[derive(Debug)]
 pub enum LexerError {
     InvalidToken { token: String, at: usize },
@@ -27,21 +29,21 @@ pub enum Token {
     Printa,
 }
 
-pub struct Scanner {
-    chars: Vec<char>,
+pub struct Scanner<'a> {
+    source: &'a Source,
     current_idx: usize,
 }
 
-impl Scanner {
-    pub fn new(contents: String) -> Self {
+impl<'a> Scanner<'a> {
+    pub fn new(source: &'a Source) -> Self {
         Self {
-            chars: contents.chars().collect(),
+            source,
             current_idx: 0,
         }
     }
 
     fn peek(&self) -> Option<char> {
-        self.chars.get(self.current_idx).copied()
+        self.source.char_at(self.current_idx)
     }
 
     fn advance(&mut self) -> Option<char> {
