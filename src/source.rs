@@ -40,7 +40,18 @@ impl Source {
         return self.chars.len();
     }
 
+    // Nothing calls this yet; it exists so that `len` does not read as an
+    // incomplete API (clippy::len_without_is_empty).
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.chars.is_empty()
+    }
+
     pub fn locate(&self, offset: usize) -> Location {
+        // `line_starts[0] == 0` always holds, so `binary_search` can never
+        // return `Err(0)` and the `i - 1` below can never underflow -- as long
+        // as the offset really points into this source.
+        debug_assert!(offset <= self.len(), "offset out of range");
         let line_idx = match self.line_starts.binary_search(&offset) {
             Ok(i) => i,      // offset is a start
             Err(i) => i - 1, // offset is in i-1 line

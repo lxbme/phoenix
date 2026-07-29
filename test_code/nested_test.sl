@@ -42,4 +42,3 @@ def print_string[char_num, ...] {
 
 100 108 114 111 119 32 111 108 108 101 72 [Hello world] 11
 $print_string[12 -> 0]
-

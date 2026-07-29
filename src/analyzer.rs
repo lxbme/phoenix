@@ -1,23 +1,32 @@
-use crate::lexer::Token;
+use crate::diag::{Diagnostic, Span};
+use crate::lexer::{Token, TokenKind};
 
-pub fn analyzer(tokens: &Vec<Token>) -> Result<(), &str> {
-    check_bracket_pairs(tokens)?;
-    Ok(())
+pub fn analyzer(tokens: &[Token]) -> Result<(), Vec<Diagnostic>> {
+    let mut diags = check_bracket_pairs(tokens);
+    diags.sort_by_key(|d| d.span.start);
+    if diags.is_empty() { Ok(()) } else { Err(diags) }
 }
 
-fn check_bracket_pairs(tokens: &Vec<Token>) -> Result<(), &str> {
-    let mut left_brackets_count: i32 = 0;
+/// A stack, not a counter: counting only proves the two totals match, so `} {`
+/// and `} } { {` used to pass while being obviously wrong.
+fn check_bracket_pairs(tokens: &[Token]) -> Vec<Diagnostic> {
+    let mut open: Vec<Span> = Vec::new();
+    let mut diags: Vec<Diagnostic> = Vec::new();
+
     for token in tokens {
-        if *token == Token::LeftBracket {
-            left_brackets_count += 1
-        }
-        if *token == Token::RightBracket {
-            left_brackets_count -= 1
+        match token.kind {
+            TokenKind::LeftBracket => open.push(token.span),
+            TokenKind::RightBracket => {
+                if open.pop().is_none() {
+                    diags.push(Diagnostic::new(token.span, "unmatched `}`"));
+                }
+            }
+            _ => {}
         }
     }
-    if left_brackets_count == 0 {
-        return Ok(());
-    } else {
-        return Err("The Brackets are not in pairs.");
+
+    for span in open {
+        diags.push(Diagnostic::new(span, "unclosed `{`"));
     }
+    diags
 }

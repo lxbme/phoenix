@@ -1,13 +1,9 @@
+use crate::diag::{Diagnostic, Span};
 use crate::source::Source;
 
-#[derive(Debug)]
-pub enum LexerError {
-    InvalidToken { token: String, at: usize },
-    UnexpectedChar { ch: char, at: usize },
-}
-
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq, Clone)]
-pub enum Token {
+pub enum TokenKind {
     EOF,
     Placeholder,
 
@@ -29,17 +25,38 @@ pub enum Token {
     Printa,
 }
 
-pub struct Scanner<'a> {
+/// A token together with where it came from.
+///
+/// Deliberately NOT `PartialEq`: equality must compare `kind` only. If `Token`
+/// derived it, two `{` at different offsets would compare unequal and the
+/// bracket check in `analyzer` would silently pass on everything.
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub span: Span,
+}
+
+impl Token {
+    pub fn new(kind: TokenKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+struct Scanner<'a> {
     source: &'a Source,
     current_idx: usize,
 }
 
 impl<'a> Scanner<'a> {
-    pub fn new(source: &'a Source) -> Self {
+    fn new(source: &'a Source) -> Self {
         Self {
             source,
             current_idx: 0,
         }
+    }
+
+    fn idx(&self) -> usize {
+        self.current_idx
     }
 
     fn peek(&self) -> Option<char> {
@@ -64,6 +81,7 @@ impl<'a> Scanner<'a> {
         s
     }
 
+    /// `[` ... `]`. An unclosed `[` comments out the rest of the file, by design.
     fn skip_comment(&mut self) {
         while let Some(c) = self.advance() {
             if c == ']' {
@@ -73,93 +91,101 @@ impl<'a> Scanner<'a> {
     }
 }
 
-pub fn lexer(mut scanner: Scanner) -> Result<Vec<Token>, LexerError> {
+pub fn lexer(source: &Source) -> Result<Vec<Token>, Vec<Diagnostic>> {
+    let mut scanner = Scanner::new(source);
     let mut tokens = Vec::<Token>::new();
+    let mut diags = Vec::<Diagnostic>::new();
+
     loop {
+        // Must be read before `advance`, otherwise every token loses its first char.
+        let start = scanner.idx();
+
         let character = match scanner.advance() {
             Some(character) => character,
             None => {
-                tokens.push(Token::EOF);
+                tokens.push(Token::new(TokenKind::EOF, Span::empty_at(start)));
                 break;
             }
         };
 
         if character.is_whitespace() {
             continue;
-        };
+        }
 
         if character == '[' {
             scanner.skip_comment();
             continue;
         }
 
-        // parsing digit
-        if character.is_ascii_digit() || character == '.' {
+        // Every branch yields a kind and the token is pushed at the single exit
+        // below, so a span can neither be forgotten nor computed twice.
+        let kind = if character.is_ascii_digit() || character == '.' {
             let mut partial = String::from(character);
             partial.push_str(&scanner.take_while(|c| c.is_ascii_digit() || c == '.'));
-            //println!("{}", partial);
-            let digit = if let Ok(digit) = partial.parse() {
-                digit
-            } else {
-                return Err(LexerError::InvalidToken {
-                    token: partial,
-                    at: scanner.current_idx,
-                });
+            let span = Span {
+                start,
+                end: scanner.idx(),
             };
-            tokens.push(Token::Digit(digit));
-            continue;
-        }
-
-        // parsing keywords and identifiers
-        if character.is_alphabetic() || character == '_' {
+            match partial.parse::<f64>() {
+                Ok(digit) => TokenKind::Digit(digit),
+                Err(_) => {
+                    diags.push(
+                        Diagnostic::new(
+                            span,
+                            format!("invalid number literal `{}`", source.snippet(span)),
+                        )
+                        .with_note("a number may contain at most one `.`"),
+                    );
+                    continue; // record and keep scanning
+                }
+            }
+        } else if character.is_alphabetic() || character == '_' {
             let mut partial = String::from(character);
             partial.push_str(&scanner.take_while(|c| c.is_alphanumeric() || c == '_'));
-
-            if vec!["def", "dow", "if", "else", "print", "printa", "var"]
-                .contains(&partial.as_str())
-            {
-                // keywords
-                match partial.as_str() {
-                    "def" => tokens.push(Token::Def),
-                    "dow" => tokens.push(Token::Dow),
-                    "if" => tokens.push(Token::If),
-                    "else" => tokens.push(Token::Else),
-                    "print" => tokens.push(Token::Print),
-                    "printa" => tokens.push(Token::Printa),
-                    "var" => tokens.push(Token::Var),
-                    &_ => eprintln!("Undefined situation"),
-                }
-            } else {
-                //identifiers
-                tokens.push(Token::Identifier(partial));
+            match partial.as_str() {
+                "def" => TokenKind::Def,
+                "dow" => TokenKind::Dow,
+                "if" => TokenKind::If,
+                "else" => TokenKind::Else,
+                "print" => TokenKind::Print,
+                "printa" => TokenKind::Printa,
+                "var" => TokenKind::Var,
+                _ => TokenKind::Identifier(partial),
             }
-            continue;
-        }
+        } else {
+            match character {
+                '+' | '-' | '*' | '/' | '!' | '=' | '~' | '>' | '<' => {
+                    TokenKind::Operator(character)
+                }
+                '{' => TokenKind::LeftBracket,
+                '}' => TokenKind::RightBracket,
+                '$' => TokenKind::Dollar,
+                // Without this arm an unrecognised character vanished silently.
+                _ => {
+                    diags.push(Diagnostic::new(
+                        Span {
+                            start,
+                            end: scanner.idx(),
+                        },
+                        format!("unexpected character `{}`", character),
+                    ));
+                    continue;
+                }
+            }
+        };
 
-        if vec!['+', '-', '*', '/', '!', '=', '~', '>', '<'].contains(&character) {
-            tokens.push(Token::Operator(character));
-            continue;
-        }
-
-        if character == '{' {
-            tokens.push(Token::LeftBracket);
-            continue;
-        }
-
-        if character == '}' {
-            tokens.push(Token::RightBracket);
-            continue;
-        }
-
-        if character == '$' {
-            tokens.push(Token::Dollar);
-            continue;
-        }
-
-        return Err(LexerError::UnexpectedChar {
-            ch: character,
-            at: scanner.current_idx,
-        });
+        tokens.push(Token::new(
+            kind,
+            Span {
+                start,
+                end: scanner.idx(),
+            },
+        ));
     }
-    Ok(tokens)
+
+    if diags.is_empty() {
+        Ok(tokens)
+    } else {
+        Err(diags)
+    }
 }
