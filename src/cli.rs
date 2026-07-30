@@ -5,7 +5,8 @@
 //! the pipeline.
 
 use crate::compiler::Opcode;
-use crate::lexer::Token;
+use crate::diag::Diagnostic;
+use crate::lexer::{Token, TokenKind};
 use crate::source::Source;
 use colored::Colorize;
 use std::io::{self, Read};
@@ -124,6 +125,24 @@ pub fn read_source(opts: &Options) -> Result<Source, String> {
             }
         }
     }
+}
+
+/// `phoenix -` reads the whole of stdin as the program, so a program that also
+/// wants to read input finds nothing there. Easy to hit, confusing to debug.
+pub fn stdin_conflict(opts: &Options, tokens: &[Token]) -> Option<Diagnostic> {
+    if opts.path.is_some() {
+        return None;
+    }
+    let token = tokens.iter().find(|token| {
+        matches!(
+            token.kind,
+            TokenKind::Read | TokenKind::Reada | TokenKind::IsEof | TokenKind::IsEofa
+        )
+    })?;
+    Some(
+        Diagnostic::warning(token.span, "input will be empty")
+            .with_note("the program itself came from stdin; pass it as a file to leave stdin free"),
+    )
 }
 
 pub fn error(msg: &str) {

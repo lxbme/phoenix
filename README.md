@@ -39,17 +39,36 @@ basic operator:
 	> [greater]
 	< [smaller]
 	[1.0 will be pushed to stack if compare success, 0.0 for unsuccess]
-	
+
+	[!! operand order: the TOP of the stack is the LEFT operand]
+	[to write the infix expression "a op b", push b first, then a]
+
+	10 3 -      [is 3 - 10, so -7]
+	2 10 /      [is 10 / 2, so 5]
+	10 3 <      [is 3 < 10, so 1.0]
+	1 x -       [is x - 1]
+	100 x <     [is x < 100]
+
+	[this is the opposite of most postfix languages, and it is deliberate:]
+	[it lets a condition be written in the order it reads, as in "100 x <"]
+
 comments - []
 
 	[this is a comment]
+
+	[!! an unclosed "[" comments out the rest of the file]
 
 define variable - var:
 	
 	var x [define x and allocate memory (x will be init to 0.0)]
 	
-	[!! if x has been defined, this will shadow the old one]
-	[!! all the variables is global]
+	[!! all the variables is global - there is one namespace, no scopes]
+	[!! re-declaring resets the value to 0.0, it does not shadow]
+
+	var x  5 x !  var x  x print      [prints 0, not 5]
+
+	[!! "var" runs at run time, so a variable must be declared before the]
+	[first time control reaches a use of it - not merely earlier in the file]
 	
 read variable:
 
@@ -58,6 +77,11 @@ read variable:
 store number to variable - !
 
 	x ! [store top of stack to x and consume it]
+
+	[!! "!" must directly follow a variable name]
+	[the target is resolved at compile time, not taken from the stack, so]
+	[anything else before "!" is a compile error - including "var x !",]
+	[where "var" has already consumed the name. write "var x  x !"]
 	
 	
 define function - def func_name { body }
@@ -69,8 +93,12 @@ define function - def func_name { body }
 	[it is recommened to write it like:]
 	def foo[3 -> 0] {funcBody}
 	[to clearify number of parameters and returns]
+
+	[!! "[3 -> 0]" is only a comment - nothing checks it yet]
 	
-	[recursion is **NOT** allowed]
+	[!! recursion does not work]
+	[it compiles and runs, but every variable is global, so a nested call]
+	[overwrites the caller's own variables. there are no call frames yet]
 
 	[!! function names are global]
 	[a def is always global and always defined, no matter where it is written]
@@ -91,8 +119,13 @@ define function - def func_name { body }
 
 call function - $function_name
 
-	5.0 3.0 1.0 $foo[3->1]
-	[the stack will change to |6.0|]
+	5.0 3.0 1.0 $foo[3 -> 0]
+	[foo consumes all three values and leaves the stack empty]
+	[the result, 6.0, ends up in the variable x that foo stored into]
+
+	[!! a function returns values by leaving them on the stack]
+	[a function that keeps its result in a global variable, like foo above,]
+	[returns nothing - the caller reads the variable instead]
 
 conditioning - if {} else {}
 
@@ -102,8 +135,20 @@ conditioning - if {} else {}
 
 loop - dow {}
 
-	1 x ! dow { x y + y ! 1 x + x ! 100 x < }
-	[dow is do-while, it will check if the top of stake is positive and consume it]
+	[dow is do-while: the body always runs at least once, then the top of]
+	[the stack is consumed and checked]
+
+	[!! the condition is an EXIT condition, not a continue condition]
+	[the loop repeats while it is 0.0 or negative, and stops once it is]
+	[positive. read "dow { body cond }" as "do body until cond"]
+
+	var x  var y
+	1 x ! dow { x y + y ! 1 x + x ! 99 x > }
+	[sums 1..99 into y, because it stops once x > 99]
+
+	[a pre-tested loop - the equivalent of "while cond" - is written as]
+	[   <cond> if { dow { <body> <cond> 0 = } } else { }   ]
+	[the "0 =" turns the continue condition into an exit condition]
 
 output - print printa
 	
@@ -112,3 +157,40 @@ output - print printa
 	
 	32 printa
 	[try to convert top to char in ascii and print-consume it]
+
+input - read reada eof eofa
+
+	read
+	[read one whitespace-delimited number from stdin and push it]
+	[running out of input here is a runtime error - use "eof" to avoid it]
+
+	reada
+	[read one byte from stdin and push its value]
+	[pushes -1 when the input is exhausted]
+	[byte oriented, to match printa, which is ascii only]
+
+	eof
+	[push 1.0 when no number remains, 0.0 otherwise]
+	[skips the whitespace between numbers, so it pairs with "read"]
+
+	eofa
+	[push 1.0 when no byte remains, 0.0 otherwise]
+	[does not skip anything, so it pairs with "reada"]
+
+	[!! "eof" discards whitespace while looking ahead]
+	[mixing it with "reada" therefore loses the whitespace - use "eofa" there]
+
+	[since dow is do-while, a pre-tested loop is written as]
+	[   <cond> if { dow { <body> <cond> 0 = } } else { }   ]
+
+	[sum every number on the input:]
+	var sum
+	0 sum !
+	eof if { } else { dow { read sum + sum ! eof } }
+	sum print
+
+	[echo the input unchanged:]
+	eofa if { } else { dow { reada printa eofa } }
+
+	[!! "phoenix -" reads the program itself from stdin, leaving no input]
+	[to read; the compiler warns about it. pass the program as a file instead]

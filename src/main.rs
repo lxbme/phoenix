@@ -52,7 +52,17 @@ fn run() -> Exit {
         return Exit::Ok;
     }
 
-    let diags = analyzer(&tokens);
+    let mut diags = analyzer(&tokens);
+    // only worth saying when the program is otherwise sound
+    let conflict = if diags.iter().any(|diag| diag.is_error()) {
+        None
+    } else {
+        cli::stdin_conflict(&opts, &tokens)
+    };
+    if let Some(diag) = conflict {
+        diags.push(diag);
+        diags.sort_by_key(|diag| diag.span.start);
+    }
     let failed = if opts.deny_warnings {
         !diags.is_empty()
     } else {

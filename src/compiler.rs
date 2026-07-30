@@ -32,6 +32,12 @@ pub enum Opcode {
 
     PRINT,
     PRINTA, // print ASCII
+
+    // input
+    READ,   // push one whitespace-delimited number from stdin
+    READA,  // push the next byte from stdin, or -1 at end of input
+    ISEOF,  // push 1.0 when no number remains (whitespace skipped)
+    ISEOFA, // push 1.0 when no byte remains
 }
 
 enum Context {
@@ -104,6 +110,10 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
             }
             TokenKind::Print => result.push(Opcode::PRINT),
             TokenKind::Printa => result.push(Opcode::PRINTA),
+            TokenKind::Read => result.push(Opcode::READ),
+            TokenKind::Reada => result.push(Opcode::READA),
+            TokenKind::IsEof => result.push(Opcode::ISEOF),
+            TokenKind::IsEofa => result.push(Opcode::ISEOFA),
             TokenKind::Dollar => {
                 match tokens.get(idx + 1).map(|token| &token.kind) {
                     Some(TokenKind::Identifier(id)) => {

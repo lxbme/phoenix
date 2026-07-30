@@ -22,6 +22,13 @@ pub enum TokenKind {
 
     Print,
     Printa,
+
+    Read,
+    Reada,
+    /// The `eof` keyword. Distinct from `EOF`, which marks the end of the
+    /// token stream -- the two must never be confused, hence the name.
+    IsEof,
+    IsEofa,
 }
 
 /// A token together with where it came from.
@@ -148,6 +155,10 @@ pub fn lexer(source: &Source) -> Result<Vec<Token>, Vec<Diagnostic>> {
                 "else" => TokenKind::Else,
                 "print" => TokenKind::Print,
                 "printa" => TokenKind::Printa,
+                "read" => TokenKind::Read,
+                "reada" => TokenKind::Reada,
+                "eof" => TokenKind::IsEof,
+                "eofa" => TokenKind::IsEofa,
                 "var" => TokenKind::Var,
                 _ => TokenKind::Identifier(partial),
             }

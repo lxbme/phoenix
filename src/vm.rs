@@ -1,12 +1,12 @@
 use crate::compiler::Opcode;
 use std::collections::HashMap;
+use std::io::{self, BufRead, StdinLock, Write};
 
 /// The operand stack holds values and nothing else. An earlier version tagged
 /// each entry with the variable it had been read from so that `STORE` could
 /// find its target at run time; the target is a compile-time fact and now
 /// travels inside the instruction, which is also what makes call frames
 /// possible later -- a name tag would dangle the moment frames exist.
-#[derive(Debug)]
 pub struct VM {
     opcodes: Vec<Opcode>,
     current_idx: usize,
@@ -17,6 +17,8 @@ pub struct VM {
     /// `print` does not emit newlines, so the program's output may end in the
     /// middle of a line. Tracked here so the runner can finish the line.
     at_line_start: bool,
+    /// Buffered so that `eof` can look ahead without consuming anything.
+    input: StdinLock<'static>,
 }
 
 impl VM {
@@ -29,6 +31,7 @@ impl VM {
             main_stack: Vec::new(),
             stopped: false,
             at_line_start: true,
+            input: io::stdin().lock(),
         }
     }
 }
@@ -161,6 +164,31 @@ impl VM {
                     self.current_idx += 1;
                 }
 
+                Opcode::READ => {
+                    let value = self.read_number()?;
+                    self.push(value);
+                    self.current_idx += 1;
+                }
+                Opcode::READA => {
+                    // byte oriented, to match `printa`, which is ASCII only
+                    let code = match self.read_byte()? {
+                        Some(byte) => f64::from(byte),
+                        None => -1.0,
+                    };
+                    self.push(code);
+                    self.current_idx += 1;
+                }
+                Opcode::ISEOF => {
+                    let at_eof = self.at_eof_word()?;
+                    self.push(if at_eof { 1.0 } else { 0.0 });
+                    self.current_idx += 1;
+                }
+                Opcode::ISEOFA => {
+                    let at_eof = self.at_eof_byte()?;
+                    self.push(if at_eof { 1.0 } else { 0.0 });
+                    self.current_idx += 1;
+                }
+
                 _ => {
                     return Err(format!(
                         "Invalid opcode: {:?}",
@@ -170,6 +198,95 @@ impl VM {
             }
         }
         Ok(())
+    }
+
+    /// stdout is line buffered, so a prompt written with `print` would sit in
+    /// the buffer while the program waits for input. Flush before every read.
+    fn flush_output(&self) {
+        let _ = io::stdout().flush();
+    }
+
+    fn peek_input(&mut self) -> Result<&[u8], String> {
+        self.input
+            .fill_buf()
+            .map_err(|err| format!("cannot read stdin: {}", err))
+    }
+
+    /// Byte level: is there another byte at all? Pairs with `reada`.
+    fn at_eof_byte(&mut self) -> Result<bool, String> {
+        self.flush_output();
+        Ok(self.peek_input()?.is_empty())
+    }
+
+    /// Word level: is there another number? Pairs with `read`, so the
+    /// whitespace between numbers must not count as input. It is discarded
+    /// here -- which is why mixing `eof` with `reada` loses whitespace.
+    fn at_eof_word(&mut self) -> Result<bool, String> {
+        self.flush_output();
+        self.skip_whitespace()?;
+        Ok(self.peek_input()?.is_empty())
+    }
+
+    fn skip_whitespace(&mut self) -> Result<(), String> {
+        loop {
+            let (eaten, found) = match self.peek_input()? {
+                [] => return Ok(()),
+                buf => match buf.iter().position(|byte| !byte.is_ascii_whitespace()) {
+                    Some(offset) => (offset, true),
+                    None => (buf.len(), false),
+                },
+            };
+            self.input.consume(eaten);
+            if found {
+                return Ok(());
+            }
+        }
+    }
+
+    fn read_byte(&mut self) -> Result<Option<u8>, String> {
+        self.flush_output();
+        let byte = match self.peek_input()? {
+            [] => None,
+            buf => Some(buf[0]),
+        };
+        if byte.is_some() {
+            self.input.consume(1);
+        }
+        Ok(byte)
+    }
+
+    /// Skips whitespace, then takes everything up to the next whitespace.
+    /// End of input is an error here -- `eof` is how a program avoids it.
+    fn read_number(&mut self) -> Result<f64, String> {
+        self.flush_output();
+        self.skip_whitespace()?;
+        if self.peek_input()?.is_empty() {
+            return Err(String::from("read: unexpected end of input"));
+        }
+
+        let mut token = String::new();
+        loop {
+            let (piece, eaten, done) = match self.peek_input()? {
+                [] => (String::new(), 0, true),
+                buf => match buf.iter().position(|byte| byte.is_ascii_whitespace()) {
+                    Some(offset) => (
+                        String::from_utf8_lossy(&buf[..offset]).into_owned(),
+                        offset,
+                        true,
+                    ),
+                    None => (String::from_utf8_lossy(buf).into_owned(), buf.len(), false),
+                },
+            };
+            self.input.consume(eaten);
+            token.push_str(&piece);
+            if done {
+                break;
+            }
+        }
+
+        token
+            .parse::<f64>()
+            .map_err(|_| format!("read: `{}` is not a number", token))
     }
 
     fn pop(&mut self) -> Result<f64, String> {
