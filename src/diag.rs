@@ -26,9 +26,16 @@ impl Span {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
 // diagnostic for error render
 #[derive(Debug)]
 pub struct Diagnostic {
+    pub severity: Severity,
     pub span: Span,
     pub msg: String,
     pub note: Option<String>,
@@ -37,9 +44,17 @@ pub struct Diagnostic {
 impl Diagnostic {
     pub fn new(span: Span, msg: impl Into<String>) -> Self {
         Self {
+            severity: Severity::Error,
             span,
             msg: msg.into(),
             note: None,
+        }
+    }
+
+    pub fn warning(span: Span, msg: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Warning,
+            ..Self::new(span, msg)
         }
     }
 
@@ -47,19 +62,38 @@ impl Diagnostic {
         self.note = Some(note.into());
         self
     }
+
+    pub fn is_error(&self) -> bool {
+        self.severity == Severity::Error
+    }
 }
 
 pub fn report(src: &Source, diags: &[Diagnostic]) {
     for diag in diags {
         render(src, diag);
     }
-    let count = diags.len();
-    eprintln!(
-        "{}: aborting due to {} previous error{}",
-        "error".red().bold(),
-        count,
-        if count == 1 { "" } else { "s" }
-    );
+    let errors = diags.iter().filter(|d| d.is_error()).count();
+    let warnings = diags.len() - errors;
+    if errors > 0 {
+        eprintln!(
+            "{}: aborting due to {} previous error{}",
+            "error".red().bold(),
+            errors,
+            plural(errors)
+        );
+    }
+    if warnings > 0 {
+        eprintln!(
+            "{}: {} warning{} emitted",
+            "warning".yellow().bold(),
+            warnings,
+            plural(warnings)
+        );
+    }
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }
 
 fn render(src: &Source, diag: &Diagnostic) {
@@ -77,8 +111,15 @@ fn render(src: &Source, diag: &Diagnostic) {
         .map(|c| if c == '\t' { '\t' } else { ' ' })
         .collect();
     let caret_width = (diag.span.end - diag.span.start).max(1);
+    let (label, caret) = match diag.severity {
+        Severity::Error => ("error".red().bold(), "^".repeat(caret_width).red().bold()),
+        Severity::Warning => (
+            "warning".yellow().bold(),
+            "^".repeat(caret_width).yellow().bold(),
+        ),
+    };
 
-    eprintln!("{}: {}", "error".red().bold(), diag.msg.bold());
+    eprintln!("{}: {}", label, diag.msg.bold());
     eprintln!(
         "{}{} {}:{}:{}",
         gutter,
@@ -94,13 +135,7 @@ fn render(src: &Source, diag: &Diagnostic) {
         bar,
         line_text
     );
-    eprintln!(
-        "{} {} {}{}",
-        gutter,
-        bar,
-        pad,
-        "^".repeat(caret_width).red().bold()
-    );
+    eprintln!("{} {} {}{}", gutter, bar, pad, caret);
     if let Some(note) = &diag.note {
         eprintln!("{} {} note: {}", gutter, "=".blue().bold(), note);
     }

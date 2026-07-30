@@ -33,8 +33,13 @@ fn main() {
         }
     };
 
-    if let Err(diags) = analyzer(&tokens) {
+    // Warnings are reported but do not stop the pipeline.
+    let diags = analyzer(&tokens);
+    let has_error = diags.iter().any(|diag| diag.is_error());
+    if !diags.is_empty() {
         report(&source, &diags);
+    }
+    if has_error {
         return;
     }
     println!("{}", "[Info] Grammar check passed.".green());
