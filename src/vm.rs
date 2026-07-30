@@ -1,73 +1,18 @@
 use crate::compiler::Opcode;
-use std::cmp;
 use std::collections::HashMap;
-use std::ops;
 
-#[derive(Debug)]
-struct Item {
-    var_name: Option<String>,
-    data: f64,
-}
-
-impl ops::Add for Item {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        Item {
-            var_name: None,
-            data: self.data + rhs.data,
-        }
-    }
-}
-
-impl ops::Sub for Item {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self {
-        Item {
-            var_name: None,
-            data: self.data - rhs.data,
-        }
-    }
-}
-
-impl ops::Mul for Item {
-    type Output = Self;
-    fn mul(self, rhs: Self) -> Self {
-        Item {
-            var_name: None,
-            data: self.data * rhs.data,
-        }
-    }
-}
-
-impl ops::Div for Item {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self {
-        Item {
-            var_name: None,
-            data: self.data / rhs.data,
-        }
-    }
-}
-
-impl cmp::PartialEq for Item {
-    fn eq(&self, other: &Self) -> bool {
-        self.data == other.data
-    }
-}
-
-impl cmp::PartialOrd for Item {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.data.partial_cmp(&other.data)
-    }
-}
-
+/// The operand stack holds values and nothing else. An earlier version tagged
+/// each entry with the variable it had been read from so that `STORE` could
+/// find its target at run time; the target is a compile-time fact and now
+/// travels inside the instruction, which is also what makes call frames
+/// possible later -- a name tag would dangle the moment frames exist.
 #[derive(Debug)]
 pub struct VM {
     opcodes: Vec<Opcode>,
     current_idx: usize,
     func_ret_stack: Vec<usize>,
     var_table: HashMap<String, f64>,
-    main_stack: Vec<Item>,
+    main_stack: Vec<f64>,
     stopped: bool,
 }
 
@@ -90,25 +35,18 @@ impl VM {
         if !self.stopped {
             match self.opcodes[self.current_idx].clone() {
                 Opcode::PUSHC(data) => {
-                    // build Item and push
-                    self.push(Item {
-                        var_name: None,
-                        data,
-                    });
+                    self.push(data);
                     self.current_idx += 1;
                 }
                 Opcode::PUSHV(val) => {
-                    // search var in var_table and build Item
+                    // search var in var_table
                     let data = match self.var_table.get(&val) {
-                        Some(data) => data,
+                        Some(data) => *data,
                         None => {
-                            return Err(format!("undefined var: {}", val.clone()));
+                            return Err(format!("undefined var: {}", val));
                         }
                     };
-                    self.push(Item {
-                        var_name: Some(val),
-                        data: *data,
-                    });
+                    self.push(data);
                     self.current_idx += 1;
                 }
                 Opcode::NEW(val) => {
@@ -116,19 +54,14 @@ impl VM {
                     self.var_table.insert(val, 0.0);
                     self.current_idx += 1;
                 }
-                Opcode::STORE => {
-                    let op_var = self.pop()?; // first opnum should be a var
-                    let op_some = self.pop()?; // second can be both
-                    match op_var.var_name {
-                        Some(val) => {
-                            self.var_table.insert(val, op_some.data);
-                        }
+                Opcode::STORE(val) => {
+                    let data = self.pop()?;
+                    match self.var_table.get_mut(&val) {
+                        Some(slot) => *slot = data,
                         None => {
-                            return Err(
-                                format! {"Top of stack should be var, but find {}", op_var.data},
-                            );
+                            return Err(format!("undefined var: {}", val));
                         }
-                    };
+                    }
                     self.current_idx += 1;
                 }
 
@@ -159,65 +92,25 @@ impl VM {
                 Opcode::EQ => {
                     let opnum_0 = self.pop()?;
                     let opnum_1 = self.pop()?;
-                    if opnum_0 == opnum_1 {
-                        self.push(Item {
-                            var_name: None,
-                            data: 1.0,
-                        });
-                    } else {
-                        self.push(Item {
-                            var_name: None,
-                            data: 0.0,
-                        });
-                    };
+                    self.push(if opnum_0 == opnum_1 { 1.0 } else { 0.0 });
                     self.current_idx += 1;
                 }
                 Opcode::NEQ => {
                     let opnum_0 = self.pop()?;
                     let opnum_1 = self.pop()?;
-                    if opnum_0 != opnum_1 {
-                        self.push(Item {
-                            var_name: None,
-                            data: 1.0,
-                        });
-                    } else {
-                        self.push(Item {
-                            var_name: None,
-                            data: 0.0,
-                        });
-                    };
+                    self.push(if opnum_0 != opnum_1 { 1.0 } else { 0.0 });
                     self.current_idx += 1
                 }
                 Opcode::GT => {
                     let opnum_0 = self.pop()?;
                     let opnum_1 = self.pop()?;
-                    if opnum_0 > opnum_1 {
-                        self.push(Item {
-                            var_name: None,
-                            data: 1.0,
-                        });
-                    } else {
-                        self.push(Item {
-                            var_name: None,
-                            data: 0.0,
-                        });
-                    };
+                    self.push(if opnum_0 > opnum_1 { 1.0 } else { 0.0 });
                     self.current_idx += 1;
                 }
                 Opcode::LT => {
                     let opnum_0 = self.pop()?;
                     let opnum_1 = self.pop()?;
-                    if opnum_0 < opnum_1 {
-                        self.push(Item {
-                            var_name: None,
-                            data: 1.0,
-                        });
-                    } else {
-                        self.push(Item {
-                            var_name: None,
-                            data: 0.0,
-                        });
-                    };
+                    self.push(if opnum_0 < opnum_1 { 1.0 } else { 0.0 });
                     self.current_idx += 1;
                 }
 
@@ -226,7 +119,7 @@ impl VM {
                 }
                 Opcode::JMPNP(des) => {
                     let opnum = self.pop()?;
-                    if opnum.data <= 0.0 {
+                    if opnum <= 0.0 {
                         self.current_idx = des;
                     } else {
                         self.current_idx += 1;
@@ -250,14 +143,14 @@ impl VM {
 
                 Opcode::PRINT => {
                     let opnum = self.pop()?;
-                    print!("{}", opnum.data);
+                    print!("{}", opnum);
                     self.current_idx += 1;
                 }
                 Opcode::PRINTA => {
                     let opnum = self.pop()?;
-                    match safe_float_to_char(opnum.data) {
+                    match safe_float_to_char(opnum) {
                         Some(character) => print!("{}", character),
-                        None => print!("<{}>", opnum.data.floor()),
+                        None => print!("<{}>", opnum.floor()),
                     }
                     self.current_idx += 1;
                 }
@@ -273,15 +166,15 @@ impl VM {
         Ok(())
     }
 
-    fn pop(&mut self) -> Result<Item, String> {
+    fn pop(&mut self) -> Result<f64, String> {
         match self.main_stack.pop() {
             Some(dig) => Ok(dig),
-            None => return Err(String::from("Stack err: empty stack")),
+            None => Err(String::from("Stack err: empty stack")),
         }
     }
 
-    fn push(&mut self, item: Item) {
-        self.main_stack.push(item);
+    fn push(&mut self, data: f64) {
+        self.main_stack.push(data);
     }
 }
 

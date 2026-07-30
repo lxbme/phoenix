@@ -19,7 +19,7 @@ pub enum Opcode {
     NEW(String),   // new var
     PUSHC(f64),    // push const
     PUSHV(String), // push var
-    STORE,         // store var
+    STORE(String), // pop one value into the named var
 
     // control flow
     INT,            // interrupt
@@ -79,7 +79,17 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                 result.push(make_operator(*op_char, tokens[idx].span)?);
             }
             TokenKind::Identifier(id) => {
-                result.push(Opcode::PUSHV(id.clone()));
+                // `x !` is a store: the target is known here, at compile time,
+                // so it goes into the instruction instead of onto the stack.
+                if matches!(
+                    tokens.get(idx + 1).map(|token| &token.kind),
+                    Some(TokenKind::Operator('!'))
+                ) {
+                    result.push(Opcode::STORE(id.clone()));
+                    idx += 1; // consume the `!`
+                } else {
+                    result.push(Opcode::PUSHV(id.clone()));
+                }
             }
             TokenKind::Digit(data) => {
                 result.push(Opcode::PUSHC(*data));
@@ -191,7 +201,11 @@ fn make_operator(op_char: char, span: Span) -> Result<Opcode, Diagnostic> {
         '~' => Opcode::NEQ,
         '>' => Opcode::GT,
         '<' => Opcode::LT,
-        '!' => Opcode::STORE,
+        // A well-formed `!` is consumed by the identifier before it; reaching
+        // here means there was no target to store into.
+        '!' => {
+            return Err(Diagnostic::new(span, "expected a variable name before `!`"));
+        }
         _ => {
             return Err(Diagnostic::new(
                 span,
