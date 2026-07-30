@@ -51,6 +51,22 @@ define function - def func_name { body }
 	
 	[recursion is **NOT** allowed]
 
+	[!! functions are hoisted]
+	[a def is always global and always defined, no matter where it is written]
+	[the body is lifted out at compile time and moved to the end of the program]
+
+	0 if { def g { 7 print } } else { 99 print } $g
+	[prints "997"]
+	[the if branch is never taken, yet g is still callable]
+
+	1 if { def g { 7 print } 42 print } else { 99 print }
+	[prints "42"]
+	[the block behaves as if the def were not there at all]
+
+	[!! write def at top level only]
+	[putting a def inside if / else / dow does not make it conditional]
+	[a def inside another def is currently miscompiled - do not do it]
+
 call function - $function_name
 
 	5.0 3.0 1.0 $foo[3->1]
