@@ -5,7 +5,6 @@ use crate::source::Source;
 #[derive(Debug, PartialEq, Clone)]
 pub enum TokenKind {
     EOF,
-    Placeholder,
 
     Operator(char),
     Identifier(String),

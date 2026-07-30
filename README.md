@@ -51,9 +51,10 @@ define function - def func_name { body }
 	
 	[recursion is **NOT** allowed]
 
-	[!! functions are hoisted]
+	[!! function names are global]
 	[a def is always global and always defined, no matter where it is written]
-	[the body is lifted out at compile time and moved to the end of the program]
+	[the body is compiled in place, with a jump in front of it, so execution]
+	[steps over the body instead of falling into it]
 
 	0 if { def g { 7 print } } else { 99 print } $g
 	[prints "997"]
@@ -65,7 +66,7 @@ define function - def func_name { body }
 
 	[!! write def at top level only]
 	[putting a def inside if / else / dow does not make it conditional]
-	[a def inside another def is currently miscompiled - do not do it]
+	[def cannot be nested - a def inside another def is a compile error]
 
 call function - $function_name
 

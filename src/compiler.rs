@@ -38,7 +38,7 @@ enum Context {
     DowBlk(usize),
     IfBlk(usize),
     ElseBlk(usize),
-    FuncBlk,
+    FuncBlk(usize),
 }
 
 /// Code generation stops at the first error: everything emitted after a bad
@@ -59,11 +59,6 @@ fn span_at(tokens: &[Token], idx: usize) -> Span {
 
 fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
     let mut result: Vec<Opcode> = Vec::new();
-    // extract function fragments
-    let (mut tokens, func_slices) = function_picker(tokens);
-    for mut func_slice in func_slices {
-        tokens.append(&mut func_slice);
-    } // append functions to tokens
 
     // content control stack
     let mut context_stack: Vec<Context> = Vec::new();
@@ -74,7 +69,6 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
     while idx < tokens.len() {
         match &tokens[idx].kind {
             TokenKind::EOF => result.push(Opcode::INT),
-            TokenKind::Placeholder => {}
             TokenKind::Operator(op_char) => {
                 result.push(make_operator(*op_char, tokens[idx].span)?);
             }
@@ -139,14 +133,28 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                 idx += 1; // skip LeftBracket
             }
             TokenKind::Def => {
+                // Functions are global and have no lexical scope, so a nested
+                // `def` would silently publish an inner name to the whole
+                // program. Reject at static analyze stage.
+                if context_stack
+                    .iter()
+                    .any(|ctx| matches!(ctx, Context::FuncBlk(_)))
+                {
+                    return Err(Diagnostic::new(tokens[idx].span, "`def` cannot be nested")
+                        .with_note("functions are global; define them at the top level"));
+                }
                 match tokens.get(idx + 1).map(|token| &token.kind) {
                     Some(TokenKind::Identifier(id)) => {
                         let id = id.clone();
-                        context_stack.push(Context::FuncBlk);
-                        func_idx_table.insert(id.clone(), result.len()); // note function idx
+                        // step over the body at run time
+                        let jmp_slot = result.len();
+                        result.push(Opcode::JMPPH);
+                        let func_idx = result.len(); // body starts right after
+                        context_stack.push(Context::FuncBlk(jmp_slot));
+                        func_idx_table.insert(id.clone(), func_idx);
                         for slot in 0..result.len() {
                             if result[slot] == Opcode::CALLPH(id.clone()) {
-                                result[slot] = Opcode::CALL(result.len()); // backfill CALLPH
+                                result[slot] = Opcode::CALL(func_idx); // backfill CALLPH
                             }
                         }
                         idx += 1; // skip function name
@@ -174,8 +182,10 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                     Some(Context::ElseBlk(jmp_idx)) => {
                         result[jmp_idx] = Opcode::JMP(result.len());
                     }
-                    Some(Context::FuncBlk) => {
+                    Some(Context::FuncBlk(jmp_slot)) => {
                         result.push(Opcode::RET);
+                        // backfill the jump that steps over the body
+                        result[jmp_slot] = Opcode::JMP(result.len());
                     }
                     // unbalanced brackets are caught earlier, by `analyzer`
                     None => {
@@ -214,50 +224,4 @@ fn make_operator(op_char: char, span: Span) -> Result<Opcode, Diagnostic> {
         }
     };
     Ok(op)
-}
-
-/// Lift every `def` body out of the main token stream so it can be appended
-/// after the `EOF`/`INT` opcode. Tokens are tombstoned and then dropped, and
-/// the bodies are moved to the end -- which is exactly why a span has to live
-/// inside `Token` rather than in a parallel array.
-fn function_picker(mut tokens: Vec<Token>) -> (Vec<Token>, Vec<Vec<Token>>) {
-    let mut func_slices: Vec<Vec<Token>> = Vec::new();
-    // status
-    let mut def_mode = false;
-    let mut bracket_counter: i32 = 0;
-    let mut single_func: Vec<Token> = Vec::new();
-    for idx in 0..tokens.len() {
-        // status transfer
-        match &tokens[idx].kind {
-            TokenKind::Def => def_mode = true,
-            TokenKind::LeftBracket => {
-                if def_mode {
-                    bracket_counter += 1;
-                }
-            }
-            TokenKind::RightBracket => {
-                if def_mode {
-                    bracket_counter -= 1;
-                }
-                if def_mode && bracket_counter == 0 {
-                    def_mode = false;
-                }
-            }
-            _ => {}
-        }
-        // logic
-        if def_mode {
-            single_func.push(tokens[idx].clone());
-            tokens[idx].kind = TokenKind::Placeholder; // keep the span
-        } else if !single_func.is_empty() {
-            // `def_mode` flips off exactly on the body's closing `}`, so this
-            // token is that `}`. Taking it (instead of synthesising a fresh
-            // `RightBracket`) is what gives the closing brace a real span.
-            single_func.push(tokens[idx].clone());
-            tokens[idx].kind = TokenKind::Placeholder;
-            func_slices.push(std::mem::take(&mut single_func));
-        }
-    }
-    tokens.retain(|token| !matches!(token.kind, TokenKind::Placeholder));
-    (tokens, func_slices)
 }
