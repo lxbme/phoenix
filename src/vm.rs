@@ -14,6 +14,9 @@ pub struct VM {
     var_table: HashMap<String, f64>,
     main_stack: Vec<f64>,
     stopped: bool,
+    /// `print` does not emit newlines, so the program's output may end in the
+    /// middle of a line. Tracked here so the runner can finish the line.
+    at_line_start: bool,
 }
 
 impl VM {
@@ -25,13 +28,13 @@ impl VM {
             var_table: HashMap::new(),
             main_stack: Vec::new(),
             stopped: false,
+            at_line_start: true,
         }
     }
 }
 
 impl VM {
     pub fn step(&mut self) -> Result<(), String> {
-        //println!("{:?}", self.main_stack);
         if !self.stopped {
             match self.opcodes[self.current_idx].clone() {
                 Opcode::PUSHC(data) => {
@@ -144,14 +147,17 @@ impl VM {
                 Opcode::PRINT => {
                     let opnum = self.pop()?;
                     print!("{}", opnum);
+                    self.at_line_start = false;
                     self.current_idx += 1;
                 }
                 Opcode::PRINTA => {
                     let opnum = self.pop()?;
-                    match safe_float_to_char(opnum) {
+                    let character = safe_float_to_char(opnum);
+                    match character {
                         Some(character) => print!("{}", character),
                         None => print!("<{}>", opnum.floor()),
                     }
+                    self.at_line_start = character == Some('\n');
                     self.current_idx += 1;
                 }
 
@@ -178,12 +184,30 @@ impl VM {
     }
 }
 
-pub fn run_opcode(opcodes: Vec<Opcode>) -> Result<(), String> {
+pub fn run_opcode(opcodes: Vec<Opcode>, trace: bool) -> Result<(), String> {
     let mut vm = VM::new(opcodes);
-    while !vm.stopped {
-        vm.step()?;
+    // An empty program has no instruction 0; stepping would index out of bounds.
+    let mut outcome = Ok(());
+    while !vm.stopped && vm.current_idx < vm.opcodes.len() {
+        if trace {
+            // stderr, so it never mixes into the program's own output
+            eprintln!(
+                "{:>4}  {:<24}{:?}",
+                vm.current_idx,
+                format!("{:?}", vm.opcodes[vm.current_idx]),
+                vm.main_stack
+            );
+        }
+        if let Err(err) = vm.step() {
+            outcome = Err(err);
+            break;
+        }
     }
-    Ok(())
+    // finish the line the program left open, on both the ok and the error path
+    if !vm.at_line_start {
+        println!();
+    }
+    outcome
 }
 
 fn safe_float_to_char(f: f64) -> Option<char> {

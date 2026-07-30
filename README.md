@@ -2,6 +2,27 @@
 
 A sequencial programing language
 
+## usage
+
+	cargo build --release
+	./target/release/phoenix program.sl
+
+Only the program's own output goes to stdout, so `phoenix program.sl > out.txt` captures exactly that; diagnostics, `--trace` and `-v` go to stderr. A successful run says nothing else.
+
+	phoenix [OPTIONS] <FILE>
+	phoenix [OPTIONS] -            read the program from stdin
+
+	-c, --check                    analyse only, do not run
+	    --dump-tokens              print the token stream and exit
+	    --dump-opcodes             print the compiled program and exit
+	    --trace                    print each instruction and the stack
+	-W, --deny-warnings            treat warnings as errors
+	-v, --verbose                  print progress information
+	-h, --help                     print this message
+	-V, --version                  print the version
+
+Exit codes: `0` success, `1` the program did not compile, `2` the program failed at run time, `64` bad command line.
+
 ## grammar
 
 variables' type: float-64 (f64 in rust)
