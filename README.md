@@ -1,4 +1,4 @@
-# SeqLang
+# Phoenix Language
 
 A sequencial programing language
 
