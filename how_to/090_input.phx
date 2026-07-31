@@ -1,0 +1,66 @@
+[ ================================================================ ]
+[ 090 -- input                                                     ]
+[                                                                  ]
+[     echo "3 1 4 1 5" | phoenix examples/090_input.phx            ]
+[                                                                  ]
+[ Try it with no input as well; it copes.                          ]
+[ ================================================================ ]
+
+def newline { 10 printa }
+
+[ There are two ways to read, and each has an end-of-input test to  ]
+[ go with it:                                                       ]
+[                                                                   ]
+[     read   one number, whitespace around it skipped               ]
+[     eof    1 when no number is left                               ]
+[                                                                   ]
+[     reada  one byte, as its code, or -1 at the end                ]
+[     eofa   1 when no byte is left                                 ]
+[                                                                   ]
+[ !! Use the matching pair. `eof` skips whitespace looking for the  ]
+[ next number, so mixing it with `reada` loses the spaces that      ]
+[ `reada` was about to hand you.                                    ]
+
+[ `read` fails if there is nothing there, so ask first. Since `eof` ]
+[ answers before the loop as well as inside it, this is the shape   ]
+[ from 050: an `if` guarding a `dow`.                               ]
+
+var total  0 total !
+var count  0 count !
+var n
+
+eof 0 = if {
+	dow {
+		read n !
+		n total + total !
+		1 count + count !
+		eof              [ leave once nothing is left ]
+	}
+} else { }
+
+[ 99 111 117 110 116 is "count", backwards below.                   ]
+def puts {
+	var k  k !
+	dow { printa  1 k - k !  0 k = }
+}
+
+116 110 117 111 99  5 $puts  32 printa
+count print $newline
+
+[ 108 97 116 111 116 is "total" backwards.                          ]
+108 97 116 111 116  5 $puts  32 printa
+total print $newline
+
+[ With `echo "3 1 4 1 5"` the expected output is:                   ]
+[                                                                   ]
+[     count 5                                                       ]
+[     total 14                                                      ]
+[                                                                   ]
+[ With no input at all:                                             ]
+[                                                                   ]
+[     count 0                                                       ]
+[     total 0                                                       ]
+
+[ !! `phoenix -` reads the PROGRAM from standard input, which then  ]
+[ leaves nothing there for the program to read. The compiler warns  ]
+[ about that rather than letting it look like the input was empty.  ]

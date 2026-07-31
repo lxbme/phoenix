@@ -1,0 +1,37 @@
+[ ================================================================ ]
+[ 000 -- hello world                                               ]
+[                                                                  ]
+[     phoenix examples/000_hello_world.phx                         ]
+[ ================================================================ ]
+
+[ This is a comment. It runs from the opening bracket to the next  ]
+[ closing one.                                                     ]
+[                                                                  ]
+[ Comments do NOT nest, and there is no way to put a bracket        ]
+[ inside one. An unclosed comment swallows the rest of the file,    ]
+[ which is by design but worth knowing the first time it happens.   ]
+
+[ Phoenix has no strings. It has one type, the 64 bit float, and    ]
+[ two ways to print one:                                            ]
+[                                                                   ]
+[     print   writes the number itself                              ]
+[     printa  writes the character with that ASCII code             ]
+[                                                                   ]
+[ So text is written one code at a time. 72 is H, 101 is e, and so  ]
+[ on; 10 is the newline.                                            ]
+
+72 printa
+101 printa
+108 printa
+108 printa
+111 printa
+33 printa
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     Hello!                                                        ]
+[                                                                   ]
+[ Spelling everything out like this gets old fast. Example 060      ]
+[ builds a helper that prints a whole line at once, but it needs    ]
+[ loops and functions first.                                        ]

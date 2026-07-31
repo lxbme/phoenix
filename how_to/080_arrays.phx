@@ -1,0 +1,93 @@
+[ ================================================================ ]
+[ 080 -- arrays                                                    ]
+[                                                                  ]
+[     phoenix examples/080_arrays.phx                              ]
+[ ================================================================ ]
+
+def newline { 10 printa }
+
+[ `arr name length` reserves a run of cells, all set to 0. The      ]
+[ length is a plain number written there and then -- it is read     ]
+[ while compiling, so it cannot be a variable or a sum.             ]
+
+arr a 5
+
+[ An element is reached by putting `@` in front of the name. The    ]
+[ index comes off the stack, so the shape matches the scalar case   ]
+[ with one extra value:                                             ]
+[                                                                   ]
+[     scalar     x          v x !                                   ]
+[     array      i @x       v i @x !                                ]
+[                                                                   ]
+[ !! For a write, push the value FIRST and the index second, so the ]
+[ index ends up on top.                                             ]
+
+var i  0 i !
+dow {
+	i 10 *  i @a !      [ a of i becomes i * 10 ]
+	1 i + i !
+	4 i >
+}
+
+0 i !
+dow {
+	i @a print 32 printa
+	1 i + i !
+	4 i >
+}
+$newline
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     0 10 20 30 40                                                 ]
+
+[ Because the index is just a number, anything that produces one    ]
+[ can address the array. That is what makes a grid possible without ]
+[ any two dimensional syntax: index it as row * width + column.     ]
+
+arr grid 12          [ 3 rows of 4 ]
+var r  var c
+
+0 r !
+dow {
+	0 c !
+	dow {
+		r c *  r 4 * c + @grid !
+		1 c + c !
+		3 c >
+	}
+	1 r + r !
+	2 r >
+}
+
+0 r !
+dow {
+	0 c !
+	dow {
+		r 4 * c + @grid print 32 printa
+		1 c + c !
+		3 c >
+	}
+	$newline
+	1 r + r !
+	2 r >
+}
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     0 0 0 0                                                       ]
+[     0 1 2 3                                                       ]
+[     0 2 4 6                                                       ]
+
+[ !! An index must be a whole number inside the array. A fraction,  ]
+[ a negative, or one past the end is an error when it happens, and  ]
+[ is never quietly rounded or wrapped -- a silently adjusted index  ]
+[ reads a neighbour's cell instead, which is far harder to find:    ]
+[                                                                   ]
+[     5 @a print                                                    ]
+[     error: `a` index 5 is out of bounds (length 5)                ]
+[     = note: valid indices are 0 to 4                              ]
+
+[ !! Arrays and variables share one set of names, so `var a` after  ]
+[ `arr a 5` is an error, and using one as the other is caught while ]
+[ compiling rather than at run time.                                ]

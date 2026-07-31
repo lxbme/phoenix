@@ -1,0 +1,60 @@
+[ ================================================================ ]
+[ 040 -- conditionals                                              ]
+[                                                                  ]
+[     phoenix examples/040_conditionals.phx                        ]
+[ ================================================================ ]
+
+[ `if` takes one value off the stack. Anything above zero runs the  ]
+[ first block; zero or less runs the second.                        ]
+
+var x  7 x !
+
+10 x < if {
+	89 printa 69 printa 83 printa    [ YES ]
+} else {
+	78 printa 79 printa              [ NO ]
+}
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     YES                                                           ]
+[                                                                   ]
+[ `10 x <` is "x < 10", which holds for 7, so it pushes 1.          ]
+
+[ !! The `else` is not optional. There is no bare `if`, because the ]
+[ compiler emits the jump over the second block unconditionally and ]
+[ has nowhere to send it otherwise. When there is nothing to do,    ]
+[ write an empty block.                                             ]
+
+3 x < if { 33 printa } else { }
+10 printa
+
+[ Expected output: an empty line -- "x < 3" is false for 7.         ]
+
+[ Since a comparison pushes 1 or 0, `0 =` flips a condition.        ]
+
+3 x < 0 = if {
+	78 printa 79 printa 84 printa    [ NOT ]
+} else { }
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     NOT                                                           ]
+
+[ There is no `and` or `or`. Nest one `if` inside another for and,  ]
+[ and add two conditions for or -- a sum is above zero exactly when ]
+[ at least one of them held.                                        ]
+
+var lo  var hi
+0 lo !  10 hi !
+
+lo x > if { hi x < if { 73 printa 78 printa } else { } } else { }
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     IN                                                            ]
+[                                                                   ]
+[ "x > 0 and x < 10", written as one test inside the other.         ]

@@ -1,0 +1,50 @@
+[ ================================================================ ]
+[ 010 -- the stack                                                 ]
+[                                                                  ]
+[     phoenix examples/010_the_stack.phx                           ]
+[ ================================================================ ]
+
+[ There are no expressions in Phoenix and no parentheses. Writing a ]
+[ number pushes it onto a stack; everything else takes values off   ]
+[ the top and may put results back.                                 ]
+
+[ Three numbers, piled up. Nothing is printed yet.                  ]
+1 2 3
+
+[ `print` takes ONE value off the top. So printing three times      ]
+[ walks back down the pile, and the numbers come out reversed.      ]
+print
+print
+print
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     321                                                           ]
+
+[ Note there were no spaces between them. `print` writes the number ]
+[ and nothing else -- no separator, no newline. Anything you want   ]
+[ between values you push yourself. 32 is a space.                  ]
+
+10 20 30
+print 32 printa
+print 32 printa
+print
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     30 20 10                                                      ]
+
+[ Arithmetic works the same way: `+` takes two values off and puts  ]
+[ one back.                                                         ]
+
+2 3 + print 10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     5                                                             ]
+
+[ Addition does not care which value was on top. Subtraction does,  ]
+[ and the answer is probably not the one you expect -- that is what ]
+[ example 020 is about.                                             ]

@@ -1,0 +1,81 @@
+[ ================================================================ ]
+[ 060 -- functions                                                 ]
+[                                                                  ]
+[     phoenix examples/060_functions.phx                           ]
+[ ================================================================ ]
+
+[ `def name { body }` defines a function, and `$name` calls it.     ]
+[ There are no parameter lists and no return statement: a function  ]
+[ takes its arguments off the stack and leaves its results there.   ]
+
+def newline { 10 printa }
+
+def square {
+	var n  n !      [ take one argument off the stack ]
+	n n *           [ leave one result on it ]
+}
+
+7 $square print $newline
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     49                                                            ]
+
+[ With more than one argument the LAST one pushed is taken off      ]
+[ first, so unpacking them in reverse lines them up with the order  ]
+[ they were written at the call.                                    ]
+
+def difference {
+	var second  second !     [ second was on top, so it comes off first ]
+	var first   first !
+	second first -           [ by the rule from 020, this is first - second ]
+}
+
+10 3 $difference print $newline
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     7                                                             ]
+
+[ !! A function body is not run where it is written -- the compiler ]
+[ jumps over it and the call goes back to it later. So a function   ]
+[ may be called on a line above the one that defines it.            ]
+
+$greet
+
+def greet {
+	33 105 72  3 $puts      [ see `puts` below for the reversal ]
+	$newline
+}
+
+[ !! `def` cannot be nested. Functions are global, so an inner one  ]
+[ would silently become visible everywhere; the compiler rejects it ]
+[ rather than pretend otherwise.                                    ]
+
+[ Here is the helper promised back in 000. It prints a run of       ]
+[ characters, so push them in REVERSE and then how many there are.  ]
+[ The reversal is because the stack hands them back top first.      ]
+
+def puts {
+	var n  n !
+	dow {
+		printa
+		1 n - n !
+		0 n =
+	}
+}
+
+[ P h o e n i x ! is 80 104 111 101 110 105 120 33, backwards.      ]
+33 120 105 110 101 111 104 80  8 $puts
+$newline
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     Hi!                                                           ]
+[     Phoenix!                                                      ]
+[                                                                   ]
+[ `Hi!` comes first because `$greet` is called before this line,    ]
+[ even though `def greet` is written below it.                      ]
+
+[ Writing a string still means looking up the codes, but at least   ]
+[ it is one line now.                                               ]

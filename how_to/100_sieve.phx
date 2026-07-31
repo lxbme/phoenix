@@ -1,0 +1,66 @@
+[ ================================================================ ]
+[ 100 -- putting it together: a sieve of Eratosthenes              ]
+[                                                                  ]
+[     phoenix examples/100_sieve.phx                               ]
+[                                                                  ]
+[ Nothing new here. Everything is from 000 to 080.                 ]
+[ ================================================================ ]
+
+arr sieve 200
+var n  var i  var j
+
+100 n !
+
+def newline { 10 printa }
+
+[ Mark every number as prime to begin with. ]
+0 i !
+dow {
+	1  i @sieve !
+	1 i + i !
+	n i >
+}
+
+[ For each i still standing, cross off its multiples. Starting at   ]
+[ i * i is enough: anything smaller with a factor of i was already  ]
+[ crossed off by that smaller factor.                               ]
+2 i !
+dow {
+	i @sieve 1 = if {
+		i i * j !
+		dow {
+			0  j @sieve !
+			i j + j !
+			n j >
+		}
+	} else { }
+	1 i + i !
+	n i i * >          [ leave once i * i > n ]
+}
+
+[ Whatever is still marked is prime. ]
+2 i !
+dow {
+	i @sieve 1 = if { i print 32 printa } else { }
+	1 i + i !
+	n i >
+}
+$newline
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     2 3 5 7 11 13 17 19 23 29 31 37 41 43 47 53 59 61 67 71 73 79 83 89 97 ]
+[                                                                   ]
+[ That is all 25 primes below 100.                                  ]
+
+[ Two things worth noticing about how this had to be written:       ]
+[                                                                   ]
+[ The inner loop crosses off multiples without ever checking that   ]
+[ it started inside the array, because the outer loop only enters   ]
+[ the body while i * i is still within n. Getting that wrong is a   ]
+[ run-time error rather than silent corruption, which is the whole  ]
+[ point of the index check in 080.                                  ]
+[                                                                   ]
+[ `n i i * >` reads as "i * i > n". Every loop here ends with its   ]
+[ exit condition written that way round, and that is the single     ]
+[ most common thing to get backwards -- see 020 and 050.            ]

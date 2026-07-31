@@ -1,0 +1,92 @@
+[ ================================================================ ]
+[ 070 -- locals and recursion                                      ]
+[                                                                  ]
+[     phoenix examples/070_locals_and_recursion.phx                ]
+[ ================================================================ ]
+
+def newline { 10 printa }
+
+[ A `var` written inside a `def` belongs to the call, not to the    ]
+[ program. Every call gets its own copy, which is what lets a       ]
+[ function call itself.                                             ]
+
+def fact {
+	var n  n !
+	2 n < if { 1 } else { 1 n - $fact  n * }
+}
+
+5 $fact print $newline
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     120                                                           ]
+[                                                                   ]
+[ Each nested call has its own `n`. If `n` were global, the inner   ]
+[ call would overwrite it and the multiplication on the way back    ]
+[ out would use the wrong number.                                   ]
+
+[ !! A name is local only BELOW its own declaration. Above it, the  ]
+[ same name still means the global one. This follows from `var`     ]
+[ running where it is written, and it means one name can refer to   ]
+[ two different things in one function.                             ]
+
+var x  9 x !
+
+def show_both {
+	x print 32 printa      [ the global x, so 9 ]
+	var x  1 x !
+	x print                [ the local x, so 1 ]
+}
+
+$show_both $newline
+x print $newline           [ the global was never touched, so 9 ]
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     9 1                                                           ]
+[     9                                                             ]
+[                                                                   ]
+[ That is a trap, so declaring a local that hides a global is a     ]
+[ warning -- this file prints one every time it is run.             ]
+
+[ !! Using a name above its own `var` when there is no global to    ]
+[ fall back on is an error, and the compiler says why:              ]
+[                                                                   ]
+[     def f { y print  var y  1 y ! }                               ]
+[     error: undefined variable `y`                                 ]
+[     = note: this function declares that name further down; a name ]
+[             is local only below its own declaration               ]
+
+[ !! Recursion needs a case that returns without recursing. Without ]
+[ one it stops at 1024 live calls and says so, rather than eating   ]
+[ memory until something else does.                                 ]
+
+[ Local arrays work the same way -- see 080 for what `arr` is.      ]
+
+def sum_to {
+	arr work 4
+	var top  top !
+	var k  0 k !
+	var total  0 total !
+	dow {
+		k 1 +  k @work !
+		1 k + k !
+		3 k >
+	}
+	0 k !
+	dow {
+		k @work total + total !
+		1 k + k !
+		3 k >
+	}
+	total top *
+}
+
+2 $sum_to print $newline
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     20                                                            ]
+[                                                                   ]
+[ 1 + 2 + 3 + 4 is 10, doubled is 20. `work` is rebuilt on every    ]
+[ call, so a recursive function may use one safely.                 ]

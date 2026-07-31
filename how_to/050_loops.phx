@@ -1,0 +1,90 @@
+[ ================================================================ ]
+[ 050 -- loops                                                     ]
+[                                                                  ]
+[     phoenix examples/050_loops.phx                               ]
+[ ================================================================ ]
+
+[ There is one loop, `dow`, and it is a do-until:                   ]
+[                                                                   ]
+[     dow { body  condition }                                       ]
+[                                                                   ]
+[ The body always runs at least once. Then the condition is taken   ]
+[ off the stack: above zero and the loop STOPS, otherwise it goes   ]
+[ round again.                                                      ]
+[                                                                   ]
+[ !! So the condition says when to leave, not when to continue.     ]
+[ Reading it as a `while` gets the loop exactly backwards.          ]
+
+var i  1 i !
+dow {
+	i print 32 printa
+	1 i + i !
+	5 i >              [ leave once i > 5 ]
+}
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     1 2 3 4 5                                                     ]
+
+[ Counting down works the same way. `1 i -` is "i - 1"; see 020.    ]
+
+5 i !
+dow {
+	i print 32 printa
+	1 i - i !
+	1 i <              [ leave once i < 1 ]
+}
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     5 4 3 2 1                                                     ]
+
+[ Because the body always runs once, `dow` cannot express a loop    ]
+[ that may run zero times. Guard it with an `if` for that -- the    ]
+[ two together are exactly a `while`:                               ]
+[                                                                   ]
+[     condition if { dow { body  condition 0 = } } else { }         ]
+[                                                                   ]
+[ The `0 =` is there because `dow` wants the opposite of what `if`  ]
+[ wants. Below, the condition is false from the start, so the body  ]
+[ never runs.                                                       ]
+
+var n  0 n !
+0 n > if {
+	dow {
+		n print 32 printa
+		1 n - n !
+		0 n > 0 =
+	}
+} else { }
+33 printa 10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     !                                                             ]
+[                                                                   ]
+[ Just the exclamation mark: the loop body did not run at all.      ]
+
+[ Nesting is fine. Here is a small multiplication table.            ]
+
+var r  var c
+1 r !
+dow {
+	1 c !
+	dow {
+		r c * print 32 printa
+		1 c + c !
+		3 c >
+	}
+	10 printa
+	1 r + r !
+	3 r >
+}
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     1 2 3                                                         ]
+[     2 4 6                                                         ]
+[     3 6 9                                                         ]

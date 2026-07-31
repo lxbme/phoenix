@@ -1,0 +1,55 @@
+[ ================================================================ ]
+[ 020 -- operand order                                             ]
+[                                                                  ]
+[     phoenix examples/020_operand_order.phx                       ]
+[                                                                  ]
+[ The one rule in this language most likely to bite you. Read this ]
+[ one before writing anything.                                     ]
+[ ================================================================ ]
+
+[ For an operator that cares which side is which, the TOP of the    ]
+[ stack is the LEFT operand.                                        ]
+[                                                                   ]
+[ To write the infix expression   a op b                            ]
+[ push b first, then a.                                             ]
+
+10 3 - print 10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     -7                                                            ]
+[                                                                   ]
+[ Because 3 was on top it is the left operand, so this is 3 - 10.   ]
+[ Most postfix languages would say 7 here. Phoenix is deliberately  ]
+[ the other way round.                                              ]
+
+2 10 / print 10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     5                                                             ]
+[                                                                   ]
+[ 10 was on top, so this is 10 / 2.                                 ]
+
+[ The reason for the choice is that a comparison then reads in the  ]
+[ order you would say it out loud. All four comparisons push 1 when ]
+[ they hold and 0 when they do not.                                 ]
+
+10 3 < print 32 printa      [ 3 < 10, which holds, so 1 ]
+10 3 > print 32 printa      [ 3 > 10, which does not, so 0 ]
+3 3 = print 32 printa       [ 3 = 3, so 1 ]
+3 3 ~ print                 [ 3 is not 3, so 0 ]
+10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     1 0 1 0                                                       ]
+
+[ Once there are variables this pays off. Writing                   ]
+[                                                                   ]
+[     100 x <                                                       ]
+[                                                                   ]
+[ reads as "x < 100", which is what it computes. The cost is that   ]
+[ subtraction and division read backwards, and that cost is real -- ]
+[ when a program of mine goes wrong, this is the first thing to     ]
+[ check.                                                            ]

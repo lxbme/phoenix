@@ -1,0 +1,57 @@
+[ ================================================================ ]
+[ 030 -- variables                                                 ]
+[                                                                  ]
+[     phoenix examples/030_variables.phx                           ]
+[ ================================================================ ]
+
+[ `var` declares a variable and sets it to 0.                       ]
+var x
+
+[ `x !` takes the top of the stack and stores it into x.            ]
+5 x !
+
+[ Writing the name on its own pushes its value back.                ]
+x print 10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     5                                                             ]
+
+[ The two together are the usual shape of an assignment: compute a  ]
+[ value, then name where it goes.                                   ]
+var y
+x x * y !
+y print 10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     25                                                            ]
+
+[ !! The `!` must come straight after a variable name. The target   ]
+[ is worked out while compiling rather than taken off the stack, so ]
+[ there has to be a name written there to work it out from. This is ]
+[ a compile error:                                                  ]
+[                                                                   ]
+[     5 !                                                           ]
+[     error: expected a variable name before `!`                    ]
+[                                                                   ]
+[ and so is this, because `var` already consumed the name:          ]
+[                                                                   ]
+[     var z !                                                       ]
+[                                                                   ]
+[ Write `var z  z !` instead.                                       ]
+
+[ !! Declaring a name again resets it to 0 rather than making a     ]
+[ second variable.                                                  ]
+var x
+x print 10 printa
+
+[ Expected output:                                                  ]
+[                                                                   ]
+[     0                                                             ]
+
+[ !! `var` is an instruction like any other, so it runs where it is ]
+[ written. A variable declared inside a branch that is not taken    ]
+[ does not exist, and using it is an error at run time rather than  ]
+[ at compile time. Example 070 has more on this, once functions are ]
+[ in the picture.                                                   ]
