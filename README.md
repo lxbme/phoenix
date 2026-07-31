@@ -5,9 +5,9 @@ A sequencial programing language
 ## usage
 
 	cargo build --release
-	./target/release/phoenix program.sl
+	./target/release/phoenix program.phx
 
-Only the program's own output goes to stdout, so `phoenix program.sl > out.txt` captures exactly that; diagnostics, `--trace` and `-v` go to stderr. A successful run says nothing else.
+Only the program's own output goes to stdout, so `phoenix program.phx > out.txt` captures exactly that; diagnostics, `--trace` and `-v` go to stderr. A successful run says nothing else.
 
 	phoenix [OPTIONS] <FILE>
 	phoenix [OPTIONS] -            read the program from stdin
