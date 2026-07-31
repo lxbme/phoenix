@@ -15,7 +15,9 @@ pub enum TokenKind {
     Else,
     Dow,
     Dollar, // $
+    At,     // @
     Var,
+    Arr,
 
     LeftBracket,  // {
     RightBracket, // }
@@ -160,6 +162,7 @@ pub fn lexer(source: &Source) -> Result<Vec<Token>, Vec<Diagnostic>> {
                 "eof" => TokenKind::IsEof,
                 "eofa" => TokenKind::IsEofa,
                 "var" => TokenKind::Var,
+                "arr" => TokenKind::Arr,
                 _ => TokenKind::Identifier(partial),
             }
         } else {
@@ -170,6 +173,7 @@ pub fn lexer(source: &Source) -> Result<Vec<Token>, Vec<Diagnostic>> {
                 '{' => TokenKind::LeftBracket,
                 '}' => TokenKind::RightBracket,
                 '$' => TokenKind::Dollar,
+                '@' => TokenKind::At,
                 // Without this arm an unrecognised character vanished silently.
                 _ => {
                     diags.push(Diagnostic::new(

@@ -12,6 +12,7 @@ pub struct VM {
     current_idx: usize,
     func_ret_stack: Vec<usize>,
     var_table: HashMap<String, f64>,
+    arr_table: HashMap<String, Vec<f64>>,
     main_stack: Vec<f64>,
     stopped: bool,
     /// `print` does not emit newlines, so the program's output may end in the
@@ -28,6 +29,7 @@ impl VM {
             current_idx: 0,
             func_ret_stack: Vec::new(),
             var_table: HashMap::new(),
+            arr_table: HashMap::new(),
             main_stack: Vec::new(),
             stopped: false,
             at_line_start: true,
@@ -68,6 +70,35 @@ impl VM {
                             return Err(format!("undefined var: {}", val));
                         }
                     }
+                    self.current_idx += 1;
+                }
+
+                Opcode::NEWARR(name, len) => {
+                    // Like `NEW`, this runs where it is written, so an array
+                    // declared inside a function is zeroed on every call.
+                    self.arr_table.insert(name, vec![0.0; len]);
+                    self.current_idx += 1;
+                }
+                Opcode::ALOAD(name) => {
+                    let raw = self.pop()?;
+                    let array = match self.arr_table.get(&name) {
+                        Some(array) => array,
+                        None => return Err(format!("undefined array: {}", name)),
+                    };
+                    let element = array[check_index(raw, array.len(), &name)?];
+                    self.push(element);
+                    self.current_idx += 1;
+                }
+                Opcode::ASTORE(name) => {
+                    // the index was pushed last, so it comes off first
+                    let raw = self.pop()?;
+                    let data = self.pop()?;
+                    let array = match self.arr_table.get_mut(&name) {
+                        Some(array) => array,
+                        None => return Err(format!("undefined array: {}", name)),
+                    };
+                    let slot = check_index(raw, array.len(), &name)?;
+                    array[slot] = data;
                     self.current_idx += 1;
                 }
 
@@ -325,6 +356,24 @@ pub fn run_opcode(opcodes: Vec<Opcode>, trace: bool) -> Result<(), String> {
         println!();
     }
     outcome
+}
+
+/// Every value is an `f64`, so an index can be fractional, negative or NaN.
+/// None of those is rounded into something plausible: silently flooring a bad
+/// index turns "I computed the wrong subscript" into "I read my neighbour's
+/// data", which is the hardest kind of bug to find in a program like this.
+fn check_index(raw: f64, len: usize, name: &str) -> Result<usize, String> {
+    // NaN and the infinities have a NaN `fract`, so they fail this test too
+    if raw.fract() != 0.0 {
+        return Err(format!("`{}` index {} is not a whole number", name, raw));
+    }
+    if raw < 0.0 || raw >= len as f64 {
+        return Err(format!(
+            "`{}` index {} is out of bounds (length {})",
+            name, raw, len
+        ));
+    }
+    Ok(raw as usize)
 }
 
 fn safe_float_to_char(f: f64) -> Option<char> {

@@ -21,6 +21,14 @@ pub enum Opcode {
     PUSHV(String), // push var
     STORE(String), // pop one value into the named var
 
+    // arrays. Keyed by name like the scalar instructions above: the name is a
+    // compile-time fact that travels inside the instruction, never on the
+    // stack, so nothing but an `f64` is ever pushed. Keeping the length out of
+    // the instruction is what leaves room for run-time sized arrays later.
+    NEWARR(String, usize), // declare an array of the given length, all zeros
+    ALOAD(String),         // pop an index, push that element
+    ASTORE(String),        // pop an index, then a value, and write it
+
     // control flow
     INT,            // interrupt
     JMPNP(usize),   // jump if not positive (include 0.0)
@@ -38,6 +46,27 @@ pub enum Opcode {
     READA,  // push the next byte from stdin, or -1 at end of input
     ISEOF,  // push 1.0 when no number remains (whitespace skipped)
     ISEOFA, // push 1.0 when no byte remains
+}
+
+/// Enough room for anything this language can plausibly index, and low enough
+/// that a typo cannot ask for an unbounded allocation.
+pub const MAX_ARRAY_LEN: usize = 1 << 24;
+
+/// An array's length is written as a literal, so a nonsensical one is caught
+/// here rather than becoming a run-time surprise. Shared with `analyzer` so the
+/// two stages cannot disagree about what counts as a length.
+pub fn array_length(raw: f64) -> Result<usize, String> {
+    // `fract` is NaN for NaN and for the infinities, so this rejects them too
+    if raw.fract() != 0.0 || raw < 1.0 {
+        return Err(format!("`{}` is not a valid array length", raw));
+    }
+    if raw > MAX_ARRAY_LEN as f64 {
+        return Err(format!(
+            "array length {} is above the maximum of {}",
+            raw, MAX_ARRAY_LEN
+        ));
+    }
+    Ok(raw as usize)
 }
 
 enum Context {
@@ -104,6 +133,59 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                         return Err(Diagnostic::new(
                             span_at(&tokens, idx + 1),
                             "expected a variable name after `var`",
+                        ));
+                    }
+                }
+            }
+            TokenKind::Arr => {
+                let name = match tokens.get(idx + 1).map(|token| &token.kind) {
+                    Some(TokenKind::Identifier(id)) => id.clone(),
+                    _ => {
+                        return Err(Diagnostic::new(
+                            span_at(&tokens, idx + 1),
+                            "expected an array name after `arr`",
+                        ));
+                    }
+                };
+                let len = match tokens.get(idx + 2).map(|token| &token.kind) {
+                    Some(TokenKind::Digit(raw)) => match array_length(*raw) {
+                        Ok(len) => len,
+                        Err(msg) => {
+                            return Err(Diagnostic::new(span_at(&tokens, idx + 2), msg)
+                                .with_note("a length is a whole number, as in `arr board 16`"));
+                        }
+                    },
+                    _ => {
+                        return Err(Diagnostic::new(
+                            span_at(&tokens, idx + 2),
+                            format!("expected a length after `arr {}`", name),
+                        ));
+                    }
+                };
+                result.push(Opcode::NEWARR(name, len));
+                idx += 2; // skip the name and the length
+            }
+            TokenKind::At => {
+                match tokens.get(idx + 1).map(|token| &token.kind) {
+                    Some(TokenKind::Identifier(id)) => {
+                        let id = id.clone();
+                        idx += 1; // skip the array name
+                        // `@x !` writes an element, a bare `@x` reads one --
+                        // the same shape as `x !` versus `x` for a scalar.
+                        if matches!(
+                            tokens.get(idx + 1).map(|token| &token.kind),
+                            Some(TokenKind::Operator('!'))
+                        ) {
+                            result.push(Opcode::ASTORE(id));
+                            idx += 1; // consume the `!`
+                        } else {
+                            result.push(Opcode::ALOAD(id));
+                        }
+                    }
+                    _ => {
+                        return Err(Diagnostic::new(
+                            span_at(&tokens, idx + 1),
+                            "expected an array name after `@`",
                         ));
                     }
                 }

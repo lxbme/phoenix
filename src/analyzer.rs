@@ -1,3 +1,4 @@
+use crate::compiler::array_length;
 use crate::diag::{Diagnostic, Span};
 use crate::lexer::{Token, TokenKind};
 use std::collections::hash_map::Entry;
@@ -38,12 +39,18 @@ struct OpenBlock {
 }
 
 /// Names gathered while walking, checked once the whole file has been seen.
+///
+/// Variables and arrays share one namespace, which is what lets a mistake be
+/// reported as "`x` is an array" instead of the useless "undefined variable".
 #[derive(Default)]
 struct Facts {
     defs: HashMap<String, Span>,
     vars: HashMap<String, Span>,
+    arrs: HashMap<String, Span>,
     calls: Vec<(String, Span)>,
     uses: Vec<(String, Span)>,
+    /// every `@name`, whether it read or wrote
+    elems: Vec<(String, Span)>,
 }
 
 /// Walks the token stream the same way `compiler` does -- consuming the name
@@ -72,6 +79,52 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
                 None => diags.push(Diagnostic::new(
                     span_after(tokens, idx),
                     "expected a variable name after `var`",
+                )),
+            },
+
+            TokenKind::Arr => match name_after(tokens, idx) {
+                Some((name, span)) => {
+                    idx += 1;
+                    // the length is a literal, so it is checked here and not
+                    // left to fail at run time
+                    match tokens.get(idx + 1).map(|next| &next.kind) {
+                        Some(TokenKind::Digit(raw)) => {
+                            if let Err(msg) = array_length(*raw) {
+                                diags.push(
+                                    Diagnostic::new(span_after(tokens, idx), msg).with_note(
+                                        "a length is a whole number, as in `arr board 16`",
+                                    ),
+                                );
+                            }
+                            idx += 1;
+                        }
+                        _ => diags.push(Diagnostic::new(
+                            span_after(tokens, idx),
+                            format!("expected a length after `arr {}`", name),
+                        )),
+                    }
+                    facts.arrs.entry(name).or_insert(span);
+                }
+                None => diags.push(Diagnostic::new(
+                    span_after(tokens, idx),
+                    "expected an array name after `arr`",
+                )),
+            },
+
+            TokenKind::At => match name_after(tokens, idx) {
+                Some((name, span)) => {
+                    facts.elems.push((name, span));
+                    idx += 1;
+                    if matches!(
+                        tokens.get(idx + 1).map(|next| &next.kind),
+                        Some(TokenKind::Operator('!'))
+                    ) {
+                        idx += 1; // the element store consumes the `!`
+                    }
+                }
+                None => diags.push(Diagnostic::new(
+                    span_after(tokens, idx),
+                    "expected an array name after `@`",
                 )),
             },
 
@@ -222,11 +275,57 @@ fn check_names(facts: &Facts, diags: &mut Vec<Diagnostic>) {
     // pass of a loop. Only a name that is never declared at all is certainly
     // wrong -- reporting more than that would produce false positives.
     for (name, span) in &facts.uses {
-        if !facts.vars.contains_key(name) {
+        if facts.vars.contains_key(name) {
+            continue;
+        }
+        // Sharing the namespace pays off here: the useful answer is not
+        // "undefined", it is "you left the `@` off".
+        if facts.arrs.contains_key(name) {
+            diags.push(
+                Diagnostic::new(*span, format!("`{}` is an array, not a variable", name))
+                    .with_note("write `i @name` to read an element, `v i @name !` to write one"),
+            );
+        } else {
             diags.push(Diagnostic::new(
                 *span,
                 format!("undefined variable `{}`", name),
             ));
+        }
+    }
+
+    for (name, span) in &facts.elems {
+        if facts.arrs.contains_key(name) {
+            continue;
+        }
+        if facts.vars.contains_key(name) {
+            diags.push(
+                Diagnostic::new(*span, format!("`{}` is a variable, not an array", name))
+                    .with_note("write `name` to read it, `v name !` to write it"),
+            );
+        } else {
+            diags.push(Diagnostic::new(
+                *span,
+                format!("undefined array `{}`", name),
+            ));
+        }
+    }
+
+    // One name, one meaning. Both declarations are legal on their own, so the
+    // second one is the mistake -- point at whichever came later.
+    for (name, arr_span) in &facts.arrs {
+        if let Some(var_span) = facts.vars.get(name) {
+            let span = if arr_span.start > var_span.start {
+                *arr_span
+            } else {
+                *var_span
+            };
+            diags.push(
+                Diagnostic::new(
+                    span,
+                    format!("`{}` is declared both as a variable and as an array", name),
+                )
+                .with_note("a name is one or the other, never both"),
+            );
         }
     }
 
@@ -236,6 +335,16 @@ fn check_names(facts: &Facts, diags: &mut Vec<Diagnostic>) {
             diags.push(Diagnostic::warning(
                 *span,
                 format!("unused variable `{}`", name),
+            ));
+        }
+    }
+
+    let indexed: HashSet<&String> = facts.elems.iter().map(|(name, _)| name).collect();
+    for (name, span) in &facts.arrs {
+        if !indexed.contains(name) {
+            diags.push(Diagnostic::warning(
+                *span,
+                format!("unused array `{}`", name),
             ));
         }
     }

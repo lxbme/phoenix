@@ -82,7 +82,43 @@ store number to variable - !
 	[the target is resolved at compile time, not taken from the stack, so]
 	[anything else before "!" is a compile error - including "var x !",]
 	[where "var" has already consumed the name. write "var x  x !"]
-	
+
+define array - arr name length:
+
+	arr board 16    [16 elements, every one init to 0.0]
+
+	[the length is a literal whole number between 1 and 16777216. it is]
+	[read at compile time, so it cannot be an expression or a variable]
+
+read and write an element - @name:
+
+	i @board            [push board[i], consuming i]
+	v i @board !        [store v into board[i], consuming both]
+
+	[the shape mirrors the scalar case exactly - the only difference is]
+	[that the index comes off the stack:]
+
+	[  scalar     x          v x !      ]
+	[  array      i @x       v i @x !   ]
+
+	[!! push the value first and the index second, so the index is on top]
+	[!! "@" must directly follow nothing and be followed by the name, and]
+	[the "!" of an element store must directly follow the name]
+
+	[!! an index must be a whole number in range. a fractional, negative,]
+	[out of range or NaN index is a run-time error, never rounded - a]
+	[silently floored index reads a neighbour's element instead]
+
+	[!! arrays and variables share one namespace. "arr x 4" after "var x"]
+	[is an error, and using one as the other is caught at compile time]
+
+	[!! like "var", "arr" runs at run time and re-declaring zeroes the]
+	[array, so an array declared inside a function is wiped on every call]
+
+	arr a 5
+	var i  0 i !
+	dow { i 10 *  i @a !   1 i + i !   4 i > }    [a = 0 10 20 30 40]
+
 	
 define function - def func_name { body }
 
