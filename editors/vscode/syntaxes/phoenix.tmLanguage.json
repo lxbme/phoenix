@@ -1,0 +1,169 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Phoenix",
+  "scopeName": "source.phoenix",
+  "comment": "Pattern order is load bearing: at any position the earliest rule in this list that matches wins, so the declaration forms must precede the bare keyword forms, the sigil forms must precede the bare identifier form, and the invalid-literal forms must precede the valid one.",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#declaration" },
+    { "include": "#call" },
+    { "include": "#element" },
+    { "include": "#keyword" },
+    { "include": "#store" },
+    { "include": "#number" },
+    { "include": "#identifier" },
+    { "include": "#punctuation" },
+    { "include": "#operator" },
+    { "include": "#illegal" }
+  ],
+  "repository": {
+    "comment": {
+      "comment": "Comments do not nest, and an unclosed `[` runs to the end of the file. A begin/end rule with no inner patterns is exactly that behaviour, so nothing special is needed.",
+      "name": "comment.block.phoenix",
+      "begin": "\\[",
+      "end": "\\]",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.comment.begin.phoenix" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.comment.end.phoenix" }
+      }
+    },
+
+    "declaration": {
+      "comment": "`def f`, `var x`, `arr a`. A match rule cannot span lines, so a declaration split across a newline falls through to the plain keyword rule and only the keyword is coloured.",
+      "patterns": [
+        {
+          "match": "\\b(def)[ \\t]+([\\p{L}_][\\p{L}0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.function.phoenix" },
+            "2": { "name": "entity.name.function.phoenix" }
+          }
+        },
+        {
+          "match": "\\b(var)[ \\t]+([\\p{L}_][\\p{L}0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.phoenix" },
+            "2": { "name": "entity.name.variable.phoenix" }
+          }
+        },
+        {
+          "match": "\\b(arr)[ \\t]+([\\p{L}_][\\p{L}0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.phoenix" },
+            "2": { "name": "entity.name.variable.phoenix" }
+          }
+        }
+      ]
+    },
+
+    "call": {
+      "patterns": [
+        {
+          "match": "(\\$)([\\p{L}_][\\p{L}0-9_]*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.function.phoenix" },
+            "2": { "name": "entity.name.function.phoenix" }
+          }
+        },
+        {
+          "comment": "`$` with no name after it is `expected a function name after `$``",
+          "match": "\\$",
+          "name": "invalid.illegal.phoenix"
+        }
+      ]
+    },
+
+    "element": {
+      "comment": "`v i @a !` writes an element and `i @a` reads one. The write form comes first so that its `!` is coloured as an assignment rather than as a bare operator.",
+      "patterns": [
+        {
+          "match": "(@)([\\p{L}_][\\p{L}0-9_]*)([ \\t]*)(!)",
+          "captures": {
+            "1": { "name": "punctuation.definition.variable.phoenix" },
+            "2": { "name": "variable.other.member.phoenix" },
+            "4": { "name": "keyword.operator.assignment.phoenix" }
+          }
+        },
+        {
+          "match": "(@)([\\p{L}_][\\p{L}0-9_]*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.variable.phoenix" },
+            "2": { "name": "variable.other.member.phoenix" }
+          }
+        },
+        {
+          "match": "@",
+          "name": "invalid.illegal.phoenix"
+        }
+      ]
+    },
+
+    "keyword": {
+      "patterns": [
+        { "match": "\\b(if|else|dow)\\b", "name": "keyword.control.phoenix" },
+        { "match": "\\b(def|var|arr)\\b", "name": "storage.type.phoenix" },
+        {
+          "match": "\\b(print|printa|read|reada|eof|eofa)\\b",
+          "name": "support.function.builtin.phoenix"
+        }
+      ]
+    },
+
+    "store": {
+      "comment": "`x !`. The compiler requires the `!` to be the next TOKEN, not the next character, so `x [note] !` is also a legal store -- this rule cannot see that, and the `!` there is flagged instead.",
+      "match": "([\\p{L}_][\\p{L}0-9_]*)([ \\t]*)(!)",
+      "captures": {
+        "1": { "name": "variable.other.phoenix" },
+        "3": { "name": "keyword.operator.assignment.phoenix" }
+      }
+    },
+
+    "number": {
+      "comment": "The lexer takes a whole run of digits and dots as one token, so `1.2.3` is a single bad literal rather than three good ones. The invalid forms are listed first so they win the position.",
+      "patterns": [
+        {
+          "comment": "two or more dots in one run -- `invalid number literal`",
+          "match": "(?<![\\p{L}0-9_.])(?=[0-9.]*\\.[0-9.]*\\.)[0-9.]+",
+          "name": "invalid.illegal.number.phoenix"
+        },
+        {
+          "comment": "a lone `.` does not parse as a number either",
+          "match": "(?<![\\p{L}0-9_.])\\.(?![0-9.])",
+          "name": "invalid.illegal.number.phoenix"
+        },
+        {
+          "match": "(?<![\\p{L}0-9_.])[0-9.]+",
+          "name": "constant.numeric.phoenix"
+        }
+      ]
+    },
+
+    "identifier": {
+      "match": "[\\p{L}_][\\p{L}0-9_]*",
+      "name": "variable.other.phoenix"
+    },
+
+    "punctuation": {
+      "match": "[{}]",
+      "name": "punctuation.section.block.phoenix"
+    },
+
+    "operator": {
+      "patterns": [
+        { "match": "[-+*/=~><]", "name": "keyword.operator.phoenix" },
+        {
+          "comment": "every well formed `!` was consumed by the rules above, so one left here has no target to store into",
+          "match": "!",
+          "name": "invalid.illegal.phoenix"
+        }
+      ]
+    },
+
+    "illegal": {
+      "comment": "Anything the lexer does not accept, which notably includes a stray `]` -- the usual symptom of a `[` comment that was expected to nest.",
+      "match": "[^\\s\\[{}$@+\\-*/!=~><\\p{L}0-9_.]",
+      "name": "invalid.illegal.phoenix"
+    }
+  }
+}

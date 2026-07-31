@@ -1,0 +1,35 @@
+{
+  "name": "phoenix-lang",
+  "displayName": "Phoenix",
+  "description": "Syntax highlighting for the Phoenix stack language",
+  "version": "0.1.0",
+  "publisher": "lxbme",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "phoenix",
+        "aliases": [
+          "Phoenix",
+          "phoenix"
+        ],
+        "extensions": [
+          ".phx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "phoenix",
+        "scopeName": "source.phoenix",
+        "path": "./syntaxes/phoenix.tmLanguage.json"
+      }
+    ]
+  }
+}
