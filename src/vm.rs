@@ -27,6 +27,10 @@ pub struct VM {
     at_line_start: bool,
     /// Buffered so that `eof` can look ahead without consuming anything.
     input: StdinLock<'static>,
+    /// Stack depth when the current instruction began. An instruction that
+    /// takes two values may pop one successfully before failing, so the depth
+    /// at the failing `pop` would understate what the program actually had.
+    depth_on_entry: usize,
 }
 
 impl VM {
@@ -42,6 +46,7 @@ impl VM {
             stopped: false,
             at_line_start: true,
             input: io::stdin().lock(),
+            depth_on_entry: 0,
         }
     }
 }
@@ -97,6 +102,7 @@ impl VM {
 
     pub fn step(&mut self) -> Result<(), Diagnostic> {
         if !self.stopped {
+            self.depth_on_entry = self.main_stack.len();
             match self.opcodes[self.current_idx].op.clone() {
                 Opcode::PUSHC(data) => {
                     self.push(data);
@@ -407,9 +413,21 @@ impl VM {
     fn pop(&mut self) -> Result<f64, Diagnostic> {
         match self.main_stack.pop() {
             Some(dig) => Ok(dig),
-            None => Err(self
-                .fail("stack underflow")
-                .with_note("this instruction needed a value, but the stack was empty")),
+            None => {
+                let (what, needs) = self.opcodes[self.current_idx].op.stack_demand();
+                let had = self.depth_on_entry;
+                Err(self.fail("stack underflow").with_note(format!(
+                    "{} needs {} value{}, but the stack {}",
+                    what,
+                    needs,
+                    if needs == 1 { "" } else { "s" },
+                    if had == 0 {
+                        String::from("was empty")
+                    } else {
+                        format!("held {}", had)
+                    },
+                )))
+            }
         }
     }
 

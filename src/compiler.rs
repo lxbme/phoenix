@@ -48,6 +48,42 @@ pub enum Opcode {
     ISEOFA, // push 1.0 when no byte remains
 }
 
+impl Opcode {
+    /// How the instruction is written in source, and how many values it takes
+    /// off the stack. Only an underflow needs this today, but it is the same
+    /// table a static stack-balance check would want.
+    ///
+    /// Written out in full rather than with a `_` arm on purpose: a new opcode
+    /// then fails to compile until someone states what it does to the stack.
+    pub fn stack_demand(&self) -> (&'static str, usize) {
+        match self {
+            Opcode::ADD => ("`+`", 2),
+            Opcode::SUB => ("`-`", 2),
+            Opcode::MUL => ("`*`", 2),
+            Opcode::DIV => ("`/`", 2),
+            Opcode::EQ => ("`=`", 2),
+            Opcode::NEQ => ("`~`", 2),
+            Opcode::GT => ("`>`", 2),
+            Opcode::LT => ("`<`", 2),
+
+            Opcode::STORE(_) => ("a store", 1),
+            Opcode::ALOAD(_) => ("an element read", 1),
+            // the index and then the value under it
+            Opcode::ASTORE(_) => ("an element store", 2),
+
+            Opcode::PRINT => ("`print`", 1),
+            Opcode::PRINTA => ("`printa`", 1),
+            // the value a `dow` or an `if` branches on
+            Opcode::JMPNP(_) => ("a `dow` or `if` test", 1),
+
+            Opcode::NEW(_) | Opcode::NEWARR(..) | Opcode::PUSHC(_) | Opcode::PUSHV(_) => ("", 0),
+            Opcode::INT | Opcode::JMP(_) | Opcode::JMPPH => ("", 0),
+            Opcode::CALL(_) | Opcode::CALLPH(_) | Opcode::RET => ("", 0),
+            Opcode::READ | Opcode::READA | Opcode::ISEOF | Opcode::ISEOFA => ("", 0),
+        }
+    }
+}
+
 /// Enough room for anything this language can plausibly index, and low enough
 /// that a typo cannot ask for an unbounded allocation.
 pub const MAX_ARRAY_LEN: usize = 1 << 24;
