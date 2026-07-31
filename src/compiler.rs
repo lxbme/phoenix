@@ -88,6 +88,15 @@ impl Instr {
     }
 }
 
+/// The compiled program: the instructions, plus what the VM needs in order to
+/// say something useful when one of them fails.
+pub struct Program {
+    pub code: Vec<Instr>,
+    /// Entry address to function name. A `CALL` carries only an address, so
+    /// this is what lets a run-time trace name the frames it walks.
+    pub funcs: HashMap<usize, String>,
+}
+
 enum Context {
     DowBlk(usize),
     IfBlk(usize),
@@ -98,7 +107,7 @@ enum Context {
 /// Code generation stops at the first error: everything emitted after a bad
 /// token would be garbage anyway. The `Vec` keeps the signature uniform with
 /// `lexer` and `analyzer` so `main` has a single reporting path.
-pub fn compiler(tokens: Vec<Token>) -> Result<Vec<Instr>, Vec<Diagnostic>> {
+pub fn compiler(tokens: Vec<Token>) -> Result<Program, Vec<Diagnostic>> {
     compile(tokens).map_err(|diag| vec![diag])
 }
 
@@ -111,7 +120,7 @@ fn span_at(tokens: &[Token], idx: usize) -> Span {
         .unwrap_or_else(|| Span::empty_at(0))
 }
 
-fn compile(tokens: Vec<Token>) -> Result<Vec<Instr>, Diagnostic> {
+fn compile(tokens: Vec<Token>) -> Result<Program, Diagnostic> {
     let mut result: Vec<Instr> = Vec::new();
 
     // content control stack
@@ -326,7 +335,15 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Instr>, Diagnostic> {
         idx += 1;
     }
 
-    Ok(result)
+    Ok(Program {
+        code: result,
+        // inverted here rather than maintained alongside: `analyzer` rejects a
+        // duplicate `def`, so name -> address is injective and safe to flip
+        funcs: func_idx_table
+            .into_iter()
+            .map(|(name, entry)| (entry, name))
+            .collect(),
+    })
 }
 
 fn make_operator(op_char: char, span: Span) -> Result<Opcode, Diagnostic> {

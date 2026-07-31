@@ -64,7 +64,8 @@ fn run() -> Exit {
         diags.sort_by_key(|diag| diag.span.start);
     }
     let failed = if opts.deny_warnings {
-        !diags.is_empty()
+        // notes are part of another diagnostic, never a finding of their own
+        diags.iter().any(|diag| !diag.is_note())
     } else {
         diags.iter().any(|diag| diag.is_error())
     };
@@ -78,22 +79,22 @@ fn run() -> Exit {
         cli::info("Grammar check passed.");
     }
 
-    let opcodes = match compiler(tokens) {
-        Ok(opcodes) => opcodes,
+    let program = match compiler(tokens) {
+        Ok(program) => program,
         Err(diags) => {
             report(&source, &diags);
             return Exit::Compile;
         }
     };
     if opts.dump_opcodes {
-        cli::dump_opcodes(&source, &opcodes);
+        cli::dump_opcodes(&source, &program.code);
         return Exit::Ok;
     }
     if opts.check {
         return Exit::Ok;
     }
 
-    match run_opcode(opcodes, opts.trace) {
+    match run_opcode(program, opts.trace) {
         Ok(_) => {
             if opts.verbose {
                 cli::info("finished.");

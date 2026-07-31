@@ -1,7 +1,11 @@
-use crate::compiler::{Instr, Opcode};
+use crate::compiler::{Instr, Opcode, Program};
 use crate::diag::{Diagnostic, Span};
 use std::collections::HashMap;
 use std::io::{self, BufRead, StdinLock, Write};
+
+/// How many call frames a trace shows before it starts counting instead. A
+/// deep chain of calls would otherwise push the error itself off the screen.
+const MAX_FRAMES: usize = 8;
 
 /// The operand stack holds values and nothing else. An earlier version tagged
 /// each entry with the variable it had been read from so that `STORE` could
@@ -10,6 +14,8 @@ use std::io::{self, BufRead, StdinLock, Write};
 /// possible later -- a name tag would dangle the moment frames exist.
 pub struct VM {
     opcodes: Vec<Instr>,
+    /// entry address -> function name, used only when a trace is being built
+    funcs: HashMap<usize, String>,
     current_idx: usize,
     func_ret_stack: Vec<usize>,
     var_table: HashMap<String, f64>,
@@ -24,9 +30,10 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn new(opcodes: Vec<Instr>) -> Self {
+    pub fn new(program: Program) -> Self {
         VM {
-            opcodes,
+            opcodes: program.code,
+            funcs: program.funcs,
             current_idx: 0,
             func_ret_stack: Vec::new(),
             var_table: HashMap::new(),
@@ -48,6 +55,44 @@ impl VM {
 
     fn fail(&self, msg: impl Into<String>) -> Diagnostic {
         Diagnostic::new(self.here(), msg)
+    }
+
+    /// The call trace at the moment of a failure, innermost call first.
+    ///
+    /// `func_ret_stack` holds the address to resume at, so the `CALL` that
+    /// pushed it is the instruction just before -- and that instruction names
+    /// the function it entered, which is all a frame needs.
+    fn frames(&self) -> Vec<Diagnostic> {
+        let depth = self.func_ret_stack.len();
+        let mut frames: Vec<Diagnostic> = Vec::new();
+        for ret in self.func_ret_stack.iter().rev() {
+            // A runaway chain of calls would otherwise bury the error itself
+            if frames.len() == MAX_FRAMES {
+                let hidden = depth - MAX_FRAMES;
+                if let Some(last) = frames.pop() {
+                    frames.push(last.with_note(format!(
+                        "... and {} more frame{}",
+                        hidden,
+                        if hidden == 1 { "" } else { "s" }
+                    )));
+                }
+                break;
+            }
+            let call_site = ret.saturating_sub(1);
+            let Some(Opcode::CALL(entry)) = self.opcodes.get(call_site).map(|instr| &instr.op)
+            else {
+                continue; // not a call after all; nothing honest to say about it
+            };
+            let name = match self.funcs.get(entry) {
+                Some(name) => name.clone(),
+                None => continue,
+            };
+            frames.push(Diagnostic::note(
+                self.opcodes[call_site].span,
+                format!("`{}` was called from here", name),
+            ));
+        }
+        frames
     }
 
     pub fn step(&mut self) -> Result<(), Diagnostic> {
@@ -373,8 +418,8 @@ impl VM {
     }
 }
 
-pub fn run_opcode(opcodes: Vec<Instr>, trace: bool) -> Result<(), Vec<Diagnostic>> {
-    let mut vm = VM::new(opcodes);
+pub fn run_opcode(program: Program, trace: bool) -> Result<(), Vec<Diagnostic>> {
+    let mut vm = VM::new(program);
     // An empty program has no instruction 0; stepping would index out of bounds.
     let mut outcome = Ok(());
     while !vm.stopped && vm.current_idx < vm.opcodes.len() {
@@ -388,7 +433,10 @@ pub fn run_opcode(opcodes: Vec<Instr>, trace: bool) -> Result<(), Vec<Diagnostic
             );
         }
         if let Err(diag) = vm.step() {
-            outcome = Err(vec![diag]);
+            // the error, then the calls that led to it, innermost first
+            let mut diags = vec![diag];
+            diags.extend(vm.frames());
+            outcome = Err(diags);
             break;
         }
     }

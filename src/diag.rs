@@ -30,6 +30,9 @@ impl Span {
 pub enum Severity {
     Error,
     Warning,
+    /// Attached to the diagnostic above it rather than standing on its own --
+    /// a frame of a run-time call trace. Never counted in the tally.
+    Note,
 }
 
 // diagnostic for error render
@@ -58,6 +61,13 @@ impl Diagnostic {
         }
     }
 
+    pub fn note(span: Span, msg: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Note,
+            ..Self::new(span, msg)
+        }
+    }
+
     pub fn with_note(mut self, note: impl Into<String>) -> Self {
         self.note = Some(note.into());
         self
@@ -65,6 +75,10 @@ impl Diagnostic {
 
     pub fn is_error(&self) -> bool {
         self.severity == Severity::Error
+    }
+
+    pub fn is_note(&self) -> bool {
+        self.severity == Severity::Note
     }
 }
 
@@ -85,7 +99,11 @@ pub fn render_all(src: &Source, diags: &[Diagnostic]) {
 
 fn summary(diags: &[Diagnostic]) {
     let errors = diags.iter().filter(|d| d.is_error()).count();
-    let warnings = diags.len() - errors;
+    // counted rather than subtracted, so that notes are not tallied as warnings
+    let warnings = diags
+        .iter()
+        .filter(|d| d.severity == Severity::Warning)
+        .count();
     if errors > 0 {
         eprintln!(
             "{}: aborting due to {} previous error{}",
@@ -129,6 +147,7 @@ fn render(src: &Source, diag: &Diagnostic) {
             "warning".yellow().bold(),
             "^".repeat(caret_width).yellow().bold(),
         ),
+        Severity::Note => ("note".cyan().bold(), "^".repeat(caret_width).cyan().bold()),
     };
 
     eprintln!("{}: {}", label, diag.msg.bold());
