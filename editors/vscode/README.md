@@ -1,16 +1,37 @@
 # Phoenix for VS Code
 
-Syntax highlighting for the Phoenix language, for files ending in `.phx`.
+Syntax highlighting and compiler diagnostics for the Phoenix language, for files ending in `.phx`.
 
-This is a declarative extension: a TextMate grammar and a language configuration, and nothing else. There is no extension code, no dependencies and no build step.
+There are no dependencies and no build step. The grammar is declarative, and the diagnostics are plain JavaScript against the `vscode` module the editor already provides — nothing to `npm install`, nothing to compile, so a symlink is a complete installation.
 
 ## Installing
 
 Link it into the extensions folder and restart VS Code:
 
-	ln -s ~/Projects/phoenix/editors/vscode ~/.vscode/extensions/lxbme.phoenix-lang-0.1.0
+	ln -s ~/Projects/phoenix/editors/vscode ~/.vscode/extensions/lxbme.phoenix-lang-0.2.0
 
 A symlink means edits to the grammar take effect on the next window reload, with nothing to rebuild. To produce a `.vsix` instead, `npm i -g @vscode/vsce` and run `vsce package` in this folder.
+
+## Diagnostics
+
+On opening and on saving a `.phx` file, the extension runs
+
+	phoenix -c --message-format=json <file>
+
+and turns each line of the output into a squiggle. `-c` means analyse only: **the extension never runs the program it is looking at**, so opening a file has no side effects.
+
+A run-time call trace arrives as an error followed by `note` frames. Those are not separate problems, so they become the error's *related information* — one squiggle, with the chain of calls listed under it as clickable links.
+
+Two settings, both under `phoenix`:
+
+- `phoenix.path` — where the binary is. Empty means try `phoenix` on `PATH`, then `target/release/phoenix` and `target/debug/phoenix` under the workspace folder. Setting it explicitly disables the fallbacks, so a typo is reported rather than quietly worked around.
+- `phoenix.check.enable` — turn the checking off and keep the colours.
+
+There is also a **Phoenix: Check File** command for re-running it by hand.
+
+### Why on save and not while typing
+
+Checking unsaved text would mean piping it through `phoenix -`, and the compiler quite rightly warns that a program read from stdin leaves no stdin for the program to read. Every program using `read` would then carry a permanent false warning. Saving is cheap enough that the delay is hard to notice.
 
 ## What it colours
 
@@ -52,3 +73,7 @@ Two smaller corners:
 ## Keeping it in sync
 
 The keyword list here mirrors `src/lexer.rs`. When a keyword or an operator character is added there, add it to `syntaxes/phoenix.tmLanguage.json` in the same commit — that is why this lives in the language's own repository rather than in one of its own.
+
+`diagnostics.js` deliberately does not import `vscode`, so the mapping from the compiler's JSON to editor positions can be exercised under plain `node` against real compiler output. `extension.js` holds everything that needs the editor to exist.
+
+An older binary that does not understand `--message-format` exits with `EX_USAGE`, which the extension recognises and reports as "rebuild it" rather than leaving the file silently unchecked.

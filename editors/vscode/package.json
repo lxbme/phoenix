@@ -1,14 +1,19 @@
 {
   "name": "phoenix-lang",
   "displayName": "Phoenix",
-  "description": "Syntax highlighting for the Phoenix stack language",
-  "version": "0.1.0",
+  "description": "Syntax highlighting and diagnostics for the Phoenix stack language",
+  "version": "0.2.0",
   "publisher": "lxbme",
   "engines": {
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Linters"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:phoenix"
   ],
   "contributes": {
     "languages": [
@@ -30,6 +35,27 @@
         "scopeName": "source.phoenix",
         "path": "./syntaxes/phoenix.tmLanguage.json"
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "phoenix.check",
+        "title": "Phoenix: Check File"
+      }
+    ],
+    "configuration": {
+      "title": "Phoenix",
+      "properties": {
+        "phoenix.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the `phoenix` binary. When empty, `phoenix` on `PATH` is tried first, then `target/release/phoenix` and `target/debug/phoenix` under the workspace folder."
+        },
+        "phoenix.check.enable": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Report compile errors and warnings by running `phoenix -c` when a file is opened or saved."
+        }
+      }
+    }
   }
 }
