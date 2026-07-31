@@ -11,7 +11,7 @@ mod vm;
 use analyzer::analyzer;
 use cli::Exit;
 use compiler::compiler;
-use diag::report;
+use diag::{render_all, report};
 use lexer::lexer;
 use vm::run_opcode;
 
@@ -86,7 +86,7 @@ fn run() -> Exit {
         }
     };
     if opts.dump_opcodes {
-        cli::dump_opcodes(&opcodes);
+        cli::dump_opcodes(&source, &opcodes);
         return Exit::Ok;
     }
     if opts.check {
@@ -100,8 +100,10 @@ fn run() -> Exit {
             }
             Exit::Ok
         }
-        Err(err) => {
-            cli::error(&err);
+        Err(diags) => {
+            // the same rendering as a compile error, minus the tally: the
+            // program did run, so there is nothing being "aborted"
+            render_all(&source, &diags);
             Exit::Runtime
         }
     }

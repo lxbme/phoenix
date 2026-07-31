@@ -68,10 +68,22 @@ impl Diagnostic {
     }
 }
 
+/// A compile stage's findings: everything it found, then the tally.
 pub fn report(src: &Source, diags: &[Diagnostic]) {
+    render_all(src, diags);
+    summary(diags);
+}
+
+/// Rendering without the tally, for a failure that is one event rather than a
+/// list of findings. A run-time error needs this: the program did run, so
+/// "aborting due to 1 previous error" would be a lie.
+pub fn render_all(src: &Source, diags: &[Diagnostic]) {
     for diag in diags {
         render(src, diag);
     }
+}
+
+fn summary(diags: &[Diagnostic]) {
     let errors = diags.iter().filter(|d| d.is_error()).count();
     let warnings = diags.len() - errors;
     if errors > 0 {

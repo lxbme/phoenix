@@ -4,7 +4,7 @@
 //! Source diagnostics live in `diag`, so `main` is left holding nothing but
 //! the pipeline.
 
-use crate::compiler::Opcode;
+use crate::compiler::Instr;
 use crate::diag::Diagnostic;
 use crate::lexer::{Token, TokenKind};
 use crate::source::Source;
@@ -170,8 +170,9 @@ pub fn dump_tokens(source: &Source, tokens: &[Token]) {
     }
 }
 
-pub fn dump_opcodes(opcodes: &[Opcode]) {
-    for (idx, opcode) in opcodes.iter().enumerate() {
-        println!("{:>4}  {:?}", idx, opcode);
+pub fn dump_opcodes(source: &Source, code: &[Instr]) {
+    for (idx, instr) in code.iter().enumerate() {
+        let loc = source.locate(instr.span.start);
+        println!("{:>4}  {}:{:<8}{:?}", idx, loc.line, loc.col, instr.op);
     }
 }

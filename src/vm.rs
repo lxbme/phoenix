@@ -1,4 +1,5 @@
-use crate::compiler::Opcode;
+use crate::compiler::{Instr, Opcode};
+use crate::diag::{Diagnostic, Span};
 use std::collections::HashMap;
 use std::io::{self, BufRead, StdinLock, Write};
 
@@ -8,7 +9,7 @@ use std::io::{self, BufRead, StdinLock, Write};
 /// travels inside the instruction, which is also what makes call frames
 /// possible later -- a name tag would dangle the moment frames exist.
 pub struct VM {
-    opcodes: Vec<Opcode>,
+    opcodes: Vec<Instr>,
     current_idx: usize,
     func_ret_stack: Vec<usize>,
     var_table: HashMap<String, f64>,
@@ -23,7 +24,7 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn new(opcodes: Vec<Opcode>) -> Self {
+    pub fn new(opcodes: Vec<Instr>) -> Self {
         VM {
             opcodes,
             current_idx: 0,
@@ -39,9 +40,19 @@ impl VM {
 }
 
 impl VM {
-    pub fn step(&mut self) -> Result<(), String> {
+    /// Where the VM is now. Every failure is reported against the instruction
+    /// that was executing, which is the source the user has to look at.
+    fn here(&self) -> Span {
+        self.opcodes[self.current_idx].span
+    }
+
+    fn fail(&self, msg: impl Into<String>) -> Diagnostic {
+        Diagnostic::new(self.here(), msg)
+    }
+
+    pub fn step(&mut self) -> Result<(), Diagnostic> {
         if !self.stopped {
-            match self.opcodes[self.current_idx].clone() {
+            match self.opcodes[self.current_idx].op.clone() {
                 Opcode::PUSHC(data) => {
                     self.push(data);
                     self.current_idx += 1;
@@ -51,7 +62,11 @@ impl VM {
                     let data = match self.var_table.get(&val) {
                         Some(data) => *data,
                         None => {
-                            return Err(format!("undefined var: {}", val));
+                            return Err(self
+                                .fail(format!("undefined variable `{}`", val))
+                                .with_note(
+                                    "`var` runs where it is written; control never reached it",
+                                ));
                         }
                     };
                     self.push(data);
@@ -67,7 +82,11 @@ impl VM {
                     match self.var_table.get_mut(&val) {
                         Some(slot) => *slot = data,
                         None => {
-                            return Err(format!("undefined var: {}", val));
+                            return Err(self
+                                .fail(format!("undefined variable `{}`", val))
+                                .with_note(
+                                    "`var` runs where it is written; control never reached it",
+                                ));
                         }
                     }
                     self.current_idx += 1;
@@ -80,24 +99,38 @@ impl VM {
                     self.current_idx += 1;
                 }
                 Opcode::ALOAD(name) => {
+                    let span = self.here();
                     let raw = self.pop()?;
                     let array = match self.arr_table.get(&name) {
                         Some(array) => array,
-                        None => return Err(format!("undefined array: {}", name)),
+                        None => {
+                            return Err(self
+                                .fail(format!("undefined array `{}`", name))
+                                .with_note(
+                                    "`arr` runs where it is written; control never reached it",
+                                ));
+                        }
                     };
-                    let element = array[check_index(raw, array.len(), &name)?];
+                    let element = array[check_index(raw, array.len(), &name, span)?];
                     self.push(element);
                     self.current_idx += 1;
                 }
                 Opcode::ASTORE(name) => {
+                    let span = self.here();
                     // the index was pushed last, so it comes off first
                     let raw = self.pop()?;
                     let data = self.pop()?;
                     let array = match self.arr_table.get_mut(&name) {
                         Some(array) => array,
-                        None => return Err(format!("undefined array: {}", name)),
+                        None => {
+                            return Err(self
+                                .fail(format!("undefined array `{}`", name))
+                                .with_note(
+                                    "`arr` runs where it is written; control never reached it",
+                                ));
+                        }
                     };
-                    let slot = check_index(raw, array.len(), &name)?;
+                    let slot = check_index(raw, array.len(), &name, span)?;
                     array[slot] = data;
                     self.current_idx += 1;
                 }
@@ -173,7 +206,7 @@ impl VM {
                     self.current_idx = match self.func_ret_stack.pop() {
                         Some(idx) => idx,
                         None => {
-                            return Err(String::from("Stack Err: empty return stack"));
+                            return Err(self.fail("returned with no matching call"));
                         }
                     }
                 }
@@ -220,11 +253,13 @@ impl VM {
                     self.current_idx += 1;
                 }
 
-                _ => {
-                    return Err(format!(
-                        "Invalid opcode: {:?}",
-                        self.opcodes[self.current_idx]
-                    ));
+                // Placeholders are all backfilled by the compiler and every
+                // name is resolved by the analyzer, so reaching this is a bug
+                // in the toolchain rather than in the program being run.
+                op => {
+                    return Err(self
+                        .fail(format!("internal error: unresolved instruction {:?}", op))
+                        .with_note("this is a compiler bug, not a mistake in the program"));
                 }
             }
         }
@@ -237,14 +272,17 @@ impl VM {
         let _ = io::stdout().flush();
     }
 
-    fn peek_input(&mut self) -> Result<&[u8], String> {
+    fn peek_input(&mut self) -> Result<&[u8], Diagnostic> {
+        // copied out before `input` is borrowed, so the span is available on
+        // the error path without holding a second borrow of `self`
+        let span = self.here();
         self.input
             .fill_buf()
-            .map_err(|err| format!("cannot read stdin: {}", err))
+            .map_err(|err| Diagnostic::new(span, format!("cannot read stdin: {}", err)))
     }
 
     /// Byte level: is there another byte at all? Pairs with `reada`.
-    fn at_eof_byte(&mut self) -> Result<bool, String> {
+    fn at_eof_byte(&mut self) -> Result<bool, Diagnostic> {
         self.flush_output();
         Ok(self.peek_input()?.is_empty())
     }
@@ -252,13 +290,13 @@ impl VM {
     /// Word level: is there another number? Pairs with `read`, so the
     /// whitespace between numbers must not count as input. It is discarded
     /// here -- which is why mixing `eof` with `reada` loses whitespace.
-    fn at_eof_word(&mut self) -> Result<bool, String> {
+    fn at_eof_word(&mut self) -> Result<bool, Diagnostic> {
         self.flush_output();
         self.skip_whitespace()?;
         Ok(self.peek_input()?.is_empty())
     }
 
-    fn skip_whitespace(&mut self) -> Result<(), String> {
+    fn skip_whitespace(&mut self) -> Result<(), Diagnostic> {
         loop {
             let (eaten, found) = match self.peek_input()? {
                 [] => return Ok(()),
@@ -274,7 +312,7 @@ impl VM {
         }
     }
 
-    fn read_byte(&mut self) -> Result<Option<u8>, String> {
+    fn read_byte(&mut self) -> Result<Option<u8>, Diagnostic> {
         self.flush_output();
         let byte = match self.peek_input()? {
             [] => None,
@@ -288,11 +326,11 @@ impl VM {
 
     /// Skips whitespace, then takes everything up to the next whitespace.
     /// End of input is an error here -- `eof` is how a program avoids it.
-    fn read_number(&mut self) -> Result<f64, String> {
+    fn read_number(&mut self) -> Result<f64, Diagnostic> {
         self.flush_output();
         self.skip_whitespace()?;
         if self.peek_input()?.is_empty() {
-            return Err(String::from("read: unexpected end of input"));
+            return Err(self.fail("read: unexpected end of input"));
         }
 
         let mut token = String::new();
@@ -315,15 +353,18 @@ impl VM {
             }
         }
 
+        let span = self.here();
         token
             .parse::<f64>()
-            .map_err(|_| format!("read: `{}` is not a number", token))
+            .map_err(|_| Diagnostic::new(span, format!("read: `{}` is not a number", token)))
     }
 
-    fn pop(&mut self) -> Result<f64, String> {
+    fn pop(&mut self) -> Result<f64, Diagnostic> {
         match self.main_stack.pop() {
             Some(dig) => Ok(dig),
-            None => Err(String::from("Stack err: empty stack")),
+            None => Err(self
+                .fail("stack underflow")
+                .with_note("this instruction needed a value, but the stack was empty")),
         }
     }
 
@@ -332,7 +373,7 @@ impl VM {
     }
 }
 
-pub fn run_opcode(opcodes: Vec<Opcode>, trace: bool) -> Result<(), String> {
+pub fn run_opcode(opcodes: Vec<Instr>, trace: bool) -> Result<(), Vec<Diagnostic>> {
     let mut vm = VM::new(opcodes);
     // An empty program has no instruction 0; stepping would index out of bounds.
     let mut outcome = Ok(());
@@ -342,12 +383,12 @@ pub fn run_opcode(opcodes: Vec<Opcode>, trace: bool) -> Result<(), String> {
             eprintln!(
                 "{:>4}  {:<24}{:?}",
                 vm.current_idx,
-                format!("{:?}", vm.opcodes[vm.current_idx]),
+                format!("{:?}", vm.opcodes[vm.current_idx].op),
                 vm.main_stack
             );
         }
-        if let Err(err) = vm.step() {
-            outcome = Err(err);
+        if let Err(diag) = vm.step() {
+            outcome = Err(vec![diag]);
             break;
         }
     }
@@ -362,16 +403,20 @@ pub fn run_opcode(opcodes: Vec<Opcode>, trace: bool) -> Result<(), String> {
 /// None of those is rounded into something plausible: silently flooring a bad
 /// index turns "I computed the wrong subscript" into "I read my neighbour's
 /// data", which is the hardest kind of bug to find in a program like this.
-fn check_index(raw: f64, len: usize, name: &str) -> Result<usize, String> {
+fn check_index(raw: f64, len: usize, name: &str, span: Span) -> Result<usize, Diagnostic> {
     // NaN and the infinities have a NaN `fract`, so they fail this test too
     if raw.fract() != 0.0 {
-        return Err(format!("`{}` index {} is not a whole number", name, raw));
+        return Err(Diagnostic::new(
+            span,
+            format!("`{}` index {} is not a whole number", name, raw),
+        ));
     }
     if raw < 0.0 || raw >= len as f64 {
-        return Err(format!(
-            "`{}` index {} is out of bounds (length {})",
-            name, raw, len
-        ));
+        return Err(Diagnostic::new(
+            span,
+            format!("`{}` index {} is out of bounds (length {})", name, raw, len),
+        )
+        .with_note(format!("valid indices are 0 to {}", len - 1)));
     }
     Ok(raw as usize)
 }

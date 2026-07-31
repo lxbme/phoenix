@@ -69,6 +69,25 @@ pub fn array_length(raw: f64) -> Result<usize, String> {
     Ok(raw as usize)
 }
 
+/// An instruction together with the source it came from, so that a failure at
+/// run time can be pointed at rather than merely described.
+///
+/// Deliberately NOT `PartialEq`, for the same reason as `Token`: the forward
+/// call backfill below asks whether a slot holds `CALLPH(name)`. If `Instr`
+/// derived it, that comparison would start including the span, never match,
+/// and every forward call would silently reach the VM unresolved.
+#[derive(Debug, Clone)]
+pub struct Instr {
+    pub op: Opcode,
+    pub span: Span,
+}
+
+impl Instr {
+    fn new(op: Opcode, span: Span) -> Self {
+        Self { op, span }
+    }
+}
+
 enum Context {
     DowBlk(usize),
     IfBlk(usize),
@@ -79,7 +98,7 @@ enum Context {
 /// Code generation stops at the first error: everything emitted after a bad
 /// token would be garbage anyway. The `Vec` keeps the signature uniform with
 /// `lexer` and `analyzer` so `main` has a single reporting path.
-pub fn compiler(tokens: Vec<Token>) -> Result<Vec<Opcode>, Vec<Diagnostic>> {
+pub fn compiler(tokens: Vec<Token>) -> Result<Vec<Instr>, Vec<Diagnostic>> {
     compile(tokens).map_err(|diag| vec![diag])
 }
 
@@ -92,8 +111,8 @@ fn span_at(tokens: &[Token], idx: usize) -> Span {
         .unwrap_or_else(|| Span::empty_at(0))
 }
 
-fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
-    let mut result: Vec<Opcode> = Vec::new();
+fn compile(tokens: Vec<Token>) -> Result<Vec<Instr>, Diagnostic> {
+    let mut result: Vec<Instr> = Vec::new();
 
     // content control stack
     let mut context_stack: Vec<Context> = Vec::new();
@@ -102,10 +121,14 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
 
     let mut idx = 0;
     while idx < tokens.len() {
+        // Most instructions come from this one token. The arms that consume
+        // several widen it, so that the caret covers what has to be fixed --
+        // `x !` and `@x !`, not just the name in the middle of them.
+        let span = tokens[idx].span;
         match &tokens[idx].kind {
-            TokenKind::EOF => result.push(Opcode::INT),
+            TokenKind::EOF => result.push(Instr::new(Opcode::INT, span)),
             TokenKind::Operator(op_char) => {
-                result.push(make_operator(*op_char, tokens[idx].span)?);
+                result.push(Instr::new(make_operator(*op_char, span)?, span));
             }
             TokenKind::Identifier(id) => {
                 // `x !` is a store: the target is known here, at compile time,
@@ -114,19 +137,21 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                     tokens.get(idx + 1).map(|token| &token.kind),
                     Some(TokenKind::Operator('!'))
                 ) {
-                    result.push(Opcode::STORE(id.clone()));
+                    let span = Span::merge(span, tokens[idx + 1].span);
+                    result.push(Instr::new(Opcode::STORE(id.clone()), span));
                     idx += 1; // consume the `!`
                 } else {
-                    result.push(Opcode::PUSHV(id.clone()));
+                    result.push(Instr::new(Opcode::PUSHV(id.clone()), span));
                 }
             }
             TokenKind::Digit(data) => {
-                result.push(Opcode::PUSHC(*data));
+                result.push(Instr::new(Opcode::PUSHC(*data), span));
             }
             TokenKind::Var => {
                 match tokens.get(idx + 1).map(|token| &token.kind) {
                     Some(TokenKind::Identifier(id)) => {
-                        result.push(Opcode::NEW(id.clone()));
+                        let span = Span::merge(span, tokens[idx + 1].span);
+                        result.push(Instr::new(Opcode::NEW(id.clone()), span));
                         idx += 1; // skip var name
                     }
                     _ => {
@@ -162,7 +187,8 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                         ));
                     }
                 };
-                result.push(Opcode::NEWARR(name, len));
+                let span = Span::merge(span, span_at(&tokens, idx + 2));
+                result.push(Instr::new(Opcode::NEWARR(name, len), span));
                 idx += 2; // skip the name and the length
             }
             TokenKind::At => {
@@ -170,16 +196,18 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                     Some(TokenKind::Identifier(id)) => {
                         let id = id.clone();
                         idx += 1; // skip the array name
+                        let span = Span::merge(span, tokens[idx].span);
                         // `@x !` writes an element, a bare `@x` reads one --
                         // the same shape as `x !` versus `x` for a scalar.
                         if matches!(
                             tokens.get(idx + 1).map(|token| &token.kind),
                             Some(TokenKind::Operator('!'))
                         ) {
-                            result.push(Opcode::ASTORE(id));
+                            let span = Span::merge(span, tokens[idx + 1].span);
+                            result.push(Instr::new(Opcode::ASTORE(id), span));
                             idx += 1; // consume the `!`
                         } else {
-                            result.push(Opcode::ALOAD(id));
+                            result.push(Instr::new(Opcode::ALOAD(id), span));
                         }
                     }
                     _ => {
@@ -190,21 +218,21 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                     }
                 }
             }
-            TokenKind::Print => result.push(Opcode::PRINT),
-            TokenKind::Printa => result.push(Opcode::PRINTA),
-            TokenKind::Read => result.push(Opcode::READ),
-            TokenKind::Reada => result.push(Opcode::READA),
-            TokenKind::IsEof => result.push(Opcode::ISEOF),
-            TokenKind::IsEofa => result.push(Opcode::ISEOFA),
+            TokenKind::Print => result.push(Instr::new(Opcode::PRINT, span)),
+            TokenKind::Printa => result.push(Instr::new(Opcode::PRINTA, span)),
+            TokenKind::Read => result.push(Instr::new(Opcode::READ, span)),
+            TokenKind::Reada => result.push(Instr::new(Opcode::READA, span)),
+            TokenKind::IsEof => result.push(Instr::new(Opcode::ISEOF, span)),
+            TokenKind::IsEofa => result.push(Instr::new(Opcode::ISEOFA, span)),
             TokenKind::Dollar => {
                 match tokens.get(idx + 1).map(|token| &token.kind) {
                     Some(TokenKind::Identifier(id)) => {
-                        match func_idx_table.get(id) {
-                            Some(func_idx) => result.push(Opcode::CALL(*func_idx)),
-                            None => {
-                                result.push(Opcode::CALLPH(id.clone()));
-                            }
-                        }
+                        let span = Span::merge(span, tokens[idx + 1].span);
+                        let op = match func_idx_table.get(id) {
+                            Some(func_idx) => Opcode::CALL(*func_idx),
+                            None => Opcode::CALLPH(id.clone()),
+                        };
+                        result.push(Instr::new(op, span));
                         idx += 1; // skip func name
                     }
                     _ => {
@@ -221,7 +249,9 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
             }
             TokenKind::If => {
                 context_stack.push(Context::IfBlk(result.len()));
-                result.push(Opcode::JMPPH); // placeholder for JUMNP
+                // the test belongs to the `if`, so the span stays there when
+                // the placeholder is backfilled at the closing `}`
+                result.push(Instr::new(Opcode::JMPPH, span)); // placeholder for JUMNP
                 idx += 1; // skip LeftBracket
             }
             TokenKind::Def => {
@@ -240,13 +270,15 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                         let id = id.clone();
                         // step over the body at run time
                         let jmp_slot = result.len();
-                        result.push(Opcode::JMPPH);
+                        result.push(Instr::new(Opcode::JMPPH, span));
                         let func_idx = result.len(); // body starts right after
                         context_stack.push(Context::FuncBlk(jmp_slot));
                         func_idx_table.insert(id.clone(), func_idx);
                         for slot in 0..result.len() {
-                            if result[slot] == Opcode::CALLPH(id.clone()) {
-                                result[slot] = Opcode::CALL(func_idx); // backfill CALLPH
+                            // only the opcode is replaced -- each call site
+                            // keeps pointing at its own `$name`
+                            if result[slot].op == Opcode::CALLPH(id.clone()) {
+                                result[slot].op = Opcode::CALL(func_idx); // backfill CALLPH
                             }
                         }
                         idx += 1; // skip function name
@@ -260,28 +292,32 @@ fn compile(tokens: Vec<Token>) -> Result<Vec<Opcode>, Diagnostic> {
                 }
             }
             TokenKind::RightBracket => {
+                // Every backfill below assigns to `.op` alone: the placeholder
+                // was emitted at the token the jump belongs to, and that is
+                // where a failure should be reported, not at this `}`.
                 match context_stack.pop() {
                     Some(Context::DowBlk(head)) => {
-                        result.push(Opcode::JMPNP(head)) // jump to head of dow
+                        // the test sits just before this `}`, so point here
+                        result.push(Instr::new(Opcode::JMPNP(head), span)) // jump to head of dow
                     }
                     Some(Context::IfBlk(jmpnp_idx)) => {
-                        result.push(Opcode::JMPPH); // place holder for JMP before else
+                        result.push(Instr::new(Opcode::JMPPH, span)); // place holder for JMP before else
                         // backfill idx for JMPNP in if
-                        result[jmpnp_idx] = Opcode::JMPNP(result.len());
+                        result[jmpnp_idx].op = Opcode::JMPNP(result.len());
                         // note idx of place holder
                         context_stack.push(Context::ElseBlk(result.len() - 1))
                     }
                     Some(Context::ElseBlk(jmp_idx)) => {
-                        result[jmp_idx] = Opcode::JMP(result.len());
+                        result[jmp_idx].op = Opcode::JMP(result.len());
                     }
                     Some(Context::FuncBlk(jmp_slot)) => {
-                        result.push(Opcode::RET);
+                        result.push(Instr::new(Opcode::RET, span));
                         // backfill the jump that steps over the body
-                        result[jmp_slot] = Opcode::JMP(result.len());
+                        result[jmp_slot].op = Opcode::JMP(result.len());
                     }
                     // unbalanced brackets are caught earlier, by `analyzer`
                     None => {
-                        return Err(Diagnostic::new(tokens[idx].span, "unmatched `}`"));
+                        return Err(Diagnostic::new(span, "unmatched `}`"));
                     }
                 }
             }
