@@ -1,4 +1,4 @@
-use crate::compiler::{Instr, Opcode, Program};
+use crate::compiler::{Instr, LocalArr, Opcode, Program};
 use crate::diag::{Diagnostic, Span};
 use std::collections::HashMap;
 use std::io::{self, BufRead, StdinLock, Write};
@@ -6,6 +6,17 @@ use std::io::{self, BufRead, StdinLock, Write};
 /// How many call frames a trace shows before it starts counting instead. A
 /// deep chain of calls would otherwise push the error itself off the screen.
 const MAX_FRAMES: usize = 8;
+
+/// A cap on live calls. Locals made recursion possible, and with it the
+/// runaway recursion that would otherwise grow the frame stack until the
+/// process is killed with nothing useful said.
+const MAX_CALL_DEPTH: usize = 1024;
+
+/// One live call: where to resume, and where its slots begin.
+struct Frame {
+    ret: usize,
+    base: usize,
+}
 
 /// The operand stack holds values and nothing else. An earlier version tagged
 /// each entry with the variable it had been read from so that `STORE` could
@@ -17,7 +28,14 @@ pub struct VM {
     /// entry address -> function name, used only when a trace is being built
     funcs: HashMap<usize, String>,
     current_idx: usize,
-    func_ret_stack: Vec<usize>,
+    call_stack: Vec<Frame>,
+    /// Every live frame's slots, end to end; a frame owns
+    /// `locals[base .. base + n]` and `RET` truncates back to `base`.
+    ///
+    /// `None` is "declared by `ENTER`, but its `var` has not run yet" -- a
+    /// declaration inside a branch that was not taken. Reading one is the same
+    /// mistake as reading an undeclared global, and gets the same answer.
+    locals: Vec<Option<f64>>,
     var_table: HashMap<String, f64>,
     arr_table: HashMap<String, Vec<f64>>,
     main_stack: Vec<f64>,
@@ -39,7 +57,8 @@ impl VM {
             opcodes: program.code,
             funcs: program.funcs,
             current_idx: 0,
-            func_ret_stack: Vec::new(),
+            call_stack: Vec::new(),
+            locals: Vec::new(),
             var_table: HashMap::new(),
             arr_table: HashMap::new(),
             main_stack: Vec::new(),
@@ -62,15 +81,49 @@ impl VM {
         Diagnostic::new(self.here(), msg)
     }
 
+    /// Absolute position of a slot of the innermost frame. Local instructions
+    /// are only emitted inside a function body, so an empty call stack here
+    /// means the toolchain is broken rather than the program.
+    fn cell(&self, slot: usize) -> Result<usize, Diagnostic> {
+        match self.call_stack.last() {
+            Some(frame) => Ok(frame.base + slot),
+            None => Err(self.fail("internal error: local used outside a call")),
+        }
+    }
+
+    /// `what` names the storage the way the source does, so the message reads
+    /// the same as the global one two arms up.
+    fn read_slot(&self, slot: usize, what: &str) -> Result<f64, Diagnostic> {
+        match self.locals.get(self.cell(slot)?) {
+            Some(Some(value)) => Ok(*value),
+            Some(None) => Err(self
+                .fail(format!("undefined {}", what))
+                .with_note("its declaration runs where it is written; control never reached it")),
+            None => Err(self.fail("internal error: local slot out of range")),
+        }
+    }
+
+    fn write_slot(&mut self, slot: usize, value: Option<f64>) -> Result<(), Diagnostic> {
+        let cell = self.cell(slot)?;
+        let out_of_range = self.fail("internal error: local slot out of range");
+        match self.locals.get_mut(cell) {
+            Some(place) => {
+                *place = value;
+                Ok(())
+            }
+            None => Err(out_of_range),
+        }
+    }
+
     /// The call trace at the moment of a failure, innermost call first.
     ///
-    /// `func_ret_stack` holds the address to resume at, so the `CALL` that
+    /// A frame holds the address to resume at, so the `CALL` that
     /// pushed it is the instruction just before -- and that instruction names
     /// the function it entered, which is all a frame needs.
     fn frames(&self) -> Vec<Diagnostic> {
-        let depth = self.func_ret_stack.len();
+        let depth = self.call_stack.len();
         let mut frames: Vec<Diagnostic> = Vec::new();
-        for ret in self.func_ret_stack.iter().rev() {
+        for frame in self.call_stack.iter().rev() {
             // A runaway chain of calls would otherwise bury the error itself
             if frames.len() == MAX_FRAMES {
                 let hidden = depth - MAX_FRAMES;
@@ -83,7 +136,7 @@ impl VM {
                 }
                 break;
             }
-            let call_site = ret.saturating_sub(1);
+            let call_site = frame.ret.saturating_sub(1);
             let Some(Opcode::CALL(entry)) = self.opcodes.get(call_site).map(|instr| &instr.op)
             else {
                 continue; // not a call after all; nothing honest to say about it
@@ -250,16 +303,74 @@ impl VM {
                     self.current_idx = des;
                 }
                 Opcode::CALL(func_idx) => {
-                    self.func_ret_stack.push(self.current_idx + 1);
+                    if self.call_stack.len() >= MAX_CALL_DEPTH {
+                        return Err(self
+                            .fail(format!("call depth limit of {} reached", MAX_CALL_DEPTH))
+                            .with_note("a function that calls itself needs a case that returns"));
+                    }
+                    // the slots are reserved by the `ENTER` this jumps to
+                    self.call_stack.push(Frame {
+                        ret: self.current_idx + 1,
+                        base: self.locals.len(),
+                    });
                     self.current_idx = func_idx;
                 }
+                Opcode::ENTER(count) => {
+                    self.locals.resize(self.locals.len() + count, None);
+                    self.current_idx += 1;
+                }
                 Opcode::RET => {
-                    self.current_idx = match self.func_ret_stack.pop() {
-                        Some(idx) => idx,
+                    self.current_idx = match self.call_stack.pop() {
+                        Some(frame) => {
+                            self.locals.truncate(frame.base); // the slots die with it
+                            frame.ret
+                        }
                         None => {
                             return Err(self.fail("returned with no matching call"));
                         }
                     }
+                }
+
+                Opcode::NEWL(slot) => {
+                    self.write_slot(slot, Some(0.0))?;
+                    self.current_idx += 1;
+                }
+                Opcode::PUSHL(name, slot) => {
+                    let data = self.read_slot(slot, &format!("variable `{}`", name))?;
+                    self.push(data);
+                    self.current_idx += 1;
+                }
+                Opcode::STOREL(name, slot) => {
+                    let data = self.pop()?;
+                    // must be declared before it can be written
+                    self.read_slot(slot, &format!("variable `{}`", name))?;
+                    self.write_slot(slot, Some(data))?;
+                    self.current_idx += 1;
+                }
+
+                Opcode::NEWARRL(arr) => {
+                    for offset in 0..arr.len {
+                        self.write_slot(arr.base + offset, Some(0.0))?;
+                    }
+                    self.current_idx += 1;
+                }
+                Opcode::ALOADL(arr) => {
+                    let span = self.here();
+                    let raw = self.pop()?;
+                    let offset = check_index(raw, arr.len, &arr.name, span)?;
+                    let element = self.read_slot(arr.base + offset, &array_hint(&arr))?;
+                    self.push(element);
+                    self.current_idx += 1;
+                }
+                Opcode::ASTOREL(arr) => {
+                    let span = self.here();
+                    // the index was pushed last, so it comes off first
+                    let raw = self.pop()?;
+                    let data = self.pop()?;
+                    let offset = check_index(raw, arr.len, &arr.name, span)?;
+                    self.read_slot(arr.base + offset, &array_hint(&arr))?;
+                    self.write_slot(arr.base + offset, Some(data))?;
+                    self.current_idx += 1;
                 }
 
                 Opcode::PRINT => {
@@ -485,6 +596,10 @@ fn check_index(raw: f64, len: usize, name: &str, span: Span) -> Result<usize, Di
         .with_note(format!("valid indices are 0 to {}", len - 1)));
     }
     Ok(raw as usize)
+}
+
+fn array_hint(arr: &LocalArr) -> String {
+    format!("array `{}`", arr.name)
 }
 
 fn safe_float_to_char(f: f64) -> Option<char> {

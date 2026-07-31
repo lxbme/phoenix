@@ -62,7 +62,8 @@ define variable - var:
 	
 	var x [define x and allocate memory (x will be init to 0.0)]
 	
-	[!! all the variables is global - there is one namespace, no scopes]
+	[!! at the top level a variable is global; inside a "def" it is local]
+	[to that call - see "scope" below]
 	[!! re-declaring resets the value to 0.0, it does not shadow]
 
 	var x  5 x !  var x  x print      [prints 0, not 5]
@@ -112,8 +113,8 @@ read and write an element - @name:
 	[!! arrays and variables share one namespace. "arr x 4" after "var x"]
 	[is an error, and using one as the other is caught at compile time]
 
-	[!! like "var", "arr" runs at run time and re-declaring zeroes the]
-	[array, so an array declared inside a function is wiped on every call]
+	[!! like "var", "arr" runs at run time and re-declaring zeroes it]
+	[!! also like "var", an "arr" inside a "def" is local to the call]
 
 	arr a 5
 	var i  0 i !
@@ -131,8 +132,44 @@ define function - def func_name { body }
 	[to clearify number of parameters and returns]
 
 	[!! "[3 -> 0]" is only a comment - nothing checks it yet]
-	
-	[!! recursion does not work]
+
+scope - what a name refers to:
+
+	[a "var" or "arr" written inside a "def" declares storage belonging to]
+	[that call, not to the program. every call gets its own copy, so a]
+	[function is reentrant and recursion works]
+
+	def fact {
+		var n  n !
+		2 n < if { 1 } else { 1 n - $fact  n * }
+	}
+	5 $fact print      [prints 120]
+
+	[!! a name is local only BELOW its own declaration. above it, the same]
+	[name still means the global. this follows the rule that declarations]
+	[run where they are written:]
+
+	var x  9 x !
+	def f {
+		x print          [the global x, so 9]
+		var x  1 x !
+		x print          [the local x, so 1]
+	}
+	$f  x print          [the global is untouched, so 9 again]
+
+	[that is a trap, so declaring a local that hides a global warns]
+
+	[!! a use above its own declaration that has no global to fall back on]
+	[is an error, and says so:]
+	[   error: undefined variable `y`                                    ]
+	[   = note: this function declares that name further down            ]
+
+	[!! a declaration that control never reaches is an error to use, the]
+	[same as for a global - "var" inside an if branch that was not taken]
+	[does not give you the variable]
+
+	[!! calls are limited to 1024 deep, so a runaway recursion says so]
+	[instead of exhausting memory]
 	[it compiles and runs, but every variable is global, so a nested call]
 	[overwrites the caller's own variables. there are no call frames yet]
 

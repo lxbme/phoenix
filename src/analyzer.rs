@@ -45,12 +45,33 @@ struct OpenBlock {
 #[derive(Default)]
 struct Facts {
     defs: HashMap<String, Span>,
+    /// globals only -- a declaration inside a `def` goes to `locals` instead
     vars: HashMap<String, Span>,
     arrs: HashMap<String, Span>,
+    /// function name -> the names it declares, for the unused and shadowing
+    /// checks. Resolution itself does not use this: a name becomes local at
+    /// its own declaration, so it is decided during the walk, in order.
+    locals: HashMap<String, HashMap<String, Span>>,
     calls: Vec<(String, Span)>,
-    uses: Vec<(String, Span)>,
+    uses: Vec<Use>,
     /// every `@name`, whether it read or wrote
-    elems: Vec<(String, Span)>,
+    elems: Vec<Use>,
+}
+
+/// A mention of a name, resolved where it was found.
+struct Use {
+    name: String,
+    span: Span,
+    /// the function it sits in, if any -- regardless of what it resolved to
+    in_fn: Option<String>,
+    /// whether it reached a declaration above it in the same function
+    local: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum LocalKind {
+    Scalar,
+    Array,
 }
 
 /// Walks the token stream the same way `compiler` does -- consuming the name
@@ -63,6 +84,11 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
     let mut pending: Option<BlockKind> = None;
     // set by a `}` that closed an `if` block, readable by the token right after
     let mut after_if_block = false;
+    // The `def` being walked and what it has declared so far. The set grows as
+    // declarations are passed, so a name resolves to the global above its own
+    // declaration and to the frame below it -- the order the VM will see.
+    let mut current_fn: Option<String> = None;
+    let mut current_locals: HashMap<String, LocalKind> = HashMap::new();
 
     let mut idx = 0;
     while idx < tokens.len() {
@@ -73,7 +99,30 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
         match &token.kind {
             TokenKind::Var => match name_after(tokens, idx) {
                 Some((name, span)) => {
-                    facts.vars.entry(name).or_insert(span);
+                    match &current_fn {
+                        Some(func) => {
+                            if current_locals.get(&name) == Some(&LocalKind::Array) {
+                                diags.push(
+                                    Diagnostic::new(
+                                        span,
+                                        format!("`{}` is already an array here", name),
+                                    )
+                                    .with_note("a name is one or the other, never both"),
+                                );
+                            } else {
+                                current_locals.insert(name.clone(), LocalKind::Scalar);
+                                facts
+                                    .locals
+                                    .entry(func.clone())
+                                    .or_default()
+                                    .entry(name)
+                                    .or_insert(span);
+                            }
+                        }
+                        None => {
+                            facts.vars.entry(name).or_insert(span);
+                        }
+                    }
                     idx += 1;
                 }
                 None => diags.push(Diagnostic::new(
@@ -103,7 +152,30 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
                             format!("expected a length after `arr {}`", name),
                         )),
                     }
-                    facts.arrs.entry(name).or_insert(span);
+                    match &current_fn {
+                        Some(func) => {
+                            if current_locals.get(&name) == Some(&LocalKind::Scalar) {
+                                diags.push(
+                                    Diagnostic::new(
+                                        span,
+                                        format!("`{}` is already a variable here", name),
+                                    )
+                                    .with_note("a name is one or the other, never both"),
+                                );
+                            } else {
+                                current_locals.insert(name.clone(), LocalKind::Array);
+                                facts
+                                    .locals
+                                    .entry(func.clone())
+                                    .or_default()
+                                    .entry(name)
+                                    .or_insert(span);
+                            }
+                        }
+                        None => {
+                            facts.arrs.entry(name).or_insert(span);
+                        }
+                    }
                 }
                 None => diags.push(Diagnostic::new(
                     span_after(tokens, idx),
@@ -113,7 +185,21 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
 
             TokenKind::At => match name_after(tokens, idx) {
                 Some((name, span)) => {
-                    facts.elems.push((name, span));
+                    match current_locals.get(&name) {
+                        Some(LocalKind::Scalar) => diags.push(
+                            Diagnostic::new(
+                                span,
+                                format!("`{}` is a variable, not an array", name),
+                            )
+                            .with_note("write `name` to read it, `v name !` to write it"),
+                        ),
+                        kind => facts.elems.push(Use {
+                            name,
+                            span,
+                            in_fn: current_fn.clone(),
+                            local: kind.is_some(),
+                        }),
+                    }
                     idx += 1;
                     if matches!(
                         tokens.get(idx + 1).map(|next| &next.kind),
@@ -164,6 +250,8 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
                         idx += 1;
                         if expect_block(tokens, idx, diags, "def") {
                             pending = Some(BlockKind::Func);
+                            current_fn = Some(name);
+                            current_locals.clear();
                         }
                     }
                     None => diags.push(Diagnostic::new(
@@ -174,7 +262,21 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
             }
 
             TokenKind::Identifier(name) => {
-                facts.uses.push((name.clone(), token.span));
+                match current_locals.get(name) {
+                    Some(LocalKind::Array) => diags.push(
+                        Diagnostic::new(
+                            token.span,
+                            format!("`{}` is an array, not a variable", name),
+                        )
+                        .with_note("write `i @name` to read an element"),
+                    ),
+                    kind => facts.uses.push(Use {
+                        name: name.clone(),
+                        span: token.span,
+                        in_fn: current_fn.clone(),
+                        local: kind.is_some(),
+                    }),
+                }
                 if matches!(
                     tokens.get(idx + 1).map(|next| &next.kind),
                     Some(TokenKind::Operator('!'))
@@ -230,6 +332,10 @@ fn walk(tokens: &[Token], diags: &mut Vec<Diagnostic>) -> Facts {
 
             TokenKind::RightBracket => match blocks.pop() {
                 Some(block) => {
+                    if block.kind == BlockKind::Func {
+                        current_fn = None; // back to the global scope
+                        current_locals.clear();
+                    }
                     if block.kind == BlockKind::If {
                         if !matches!(
                             tokens.get(idx + 1).map(|next| &next.kind),
@@ -270,42 +376,51 @@ fn check_names(facts: &Facts, diags: &mut Vec<Diagnostic>) {
         }
     }
 
-    // Declaration order is deliberately ignored: `var` runs at run time, so a
-    // use textually before the declaration can still be correct on a later
-    // pass of a loop. Only a name that is never declared at all is certainly
-    // wrong -- reporting more than that would produce false positives.
-    for (name, span) in &facts.uses {
-        if facts.vars.contains_key(name) {
+    // Declaration order is deliberately ignored for globals: `var` runs at run
+    // time, so a use textually before the declaration can still be correct on a
+    // later pass of a loop. Only a name that is never declared at all is
+    // certainly wrong. Locals are the opposite -- a name is local only below its
+    // own declaration -- but that was already settled during the walk.
+    for use_ in &facts.uses {
+        if use_.local || facts.vars.contains_key(&use_.name) {
             continue;
         }
         // Sharing the namespace pays off here: the useful answer is not
         // "undefined", it is "you left the `@` off".
-        if facts.arrs.contains_key(name) {
+        if facts.arrs.contains_key(&use_.name) {
             diags.push(
-                Diagnostic::new(*span, format!("`{}` is an array, not a variable", name))
-                    .with_note("write `i @name` to read an element, `v i @name !` to write one"),
+                Diagnostic::new(
+                    use_.span,
+                    format!("`{}` is an array, not a variable", use_.name),
+                )
+                .with_note("write `i @name` to read an element, `v i @name !` to write one"),
             );
         } else {
-            diags.push(Diagnostic::new(
-                *span,
-                format!("undefined variable `{}`", name),
+            diags.push(undefined(
+                facts,
+                use_,
+                format!("undefined variable `{}`", use_.name),
             ));
         }
     }
 
-    for (name, span) in &facts.elems {
-        if facts.arrs.contains_key(name) {
+    for use_ in &facts.elems {
+        if use_.local || facts.arrs.contains_key(&use_.name) {
             continue;
         }
-        if facts.vars.contains_key(name) {
+        if facts.vars.contains_key(&use_.name) {
             diags.push(
-                Diagnostic::new(*span, format!("`{}` is a variable, not an array", name))
-                    .with_note("write `name` to read it, `v name !` to write it"),
+                Diagnostic::new(
+                    use_.span,
+                    format!("`{}` is a variable, not an array", use_.name),
+                )
+                .with_note("write `name` to read it, `v name !` to write it"),
             );
         } else {
-            diags.push(Diagnostic::new(
-                *span,
-                format!("undefined array `{}`", name),
+            diags.push(undefined(
+                facts,
+                use_,
+                format!("undefined array `{}`", use_.name),
             ));
         }
     }
@@ -329,23 +444,54 @@ fn check_names(facts: &Facts, diags: &mut Vec<Diagnostic>) {
         }
     }
 
-    let used: HashSet<&String> = facts.uses.iter().map(|(name, _)| name).collect();
-    for (name, span) in &facts.vars {
-        if !used.contains(name) {
+    // A mention that reached a local does not count as touching the global of
+    // the same name, so the two tallies are kept apart.
+    let mut used_global: HashSet<&String> = HashSet::new();
+    let mut used_local: HashSet<(&String, &String)> = HashSet::new();
+    for use_ in facts.uses.iter().chain(facts.elems.iter()) {
+        match (&use_.in_fn, use_.local) {
+            (Some(func), true) => {
+                used_local.insert((func, &use_.name));
+            }
+            _ => {
+                used_global.insert(&use_.name);
+            }
+        }
+    }
+
+    for (name, span) in facts.vars.iter().chain(facts.arrs.iter()) {
+        if !used_global.contains(name) {
+            let what = if facts.arrs.contains_key(name) {
+                "array"
+            } else {
+                "variable"
+            };
             diags.push(Diagnostic::warning(
                 *span,
-                format!("unused variable `{}`", name),
+                format!("unused {} `{}`", what, name),
             ));
         }
     }
 
-    let indexed: HashSet<&String> = facts.elems.iter().map(|(name, _)| name).collect();
-    for (name, span) in &facts.arrs {
-        if !indexed.contains(name) {
-            diags.push(Diagnostic::warning(
-                *span,
-                format!("unused array `{}`", name),
-            ));
+    for (func, declared) in &facts.locals {
+        for (name, span) in declared {
+            if !used_local.contains(&(func, name)) {
+                diags.push(Diagnostic::warning(
+                    *span,
+                    format!("unused variable `{}`", name),
+                ));
+            }
+            // Quietly getting a fresh copy instead of the global is the one
+            // real trap in making a declaration local, so it is never quiet.
+            if facts.vars.contains_key(name) || facts.arrs.contains_key(name) {
+                diags.push(
+                    Diagnostic::warning(
+                        *span,
+                        format!("local `{}` shadows the global of the same name", name),
+                    )
+                    .with_note("the global is unreachable below this point; rename one of them"),
+                );
+            }
         }
     }
 
@@ -357,6 +503,22 @@ fn check_names(facts: &Facts, diags: &mut Vec<Diagnostic>) {
                 format!("function `{}` is never called", name),
             ));
         }
+    }
+}
+
+/// An undefined name, plus the hint that makes the single-pass scope rule
+/// legible: the declaration may be right there, just lower down.
+fn undefined(facts: &Facts, use_: &Use, msg: String) -> Diagnostic {
+    let diag = Diagnostic::new(use_.span, msg);
+    let declared_later = use_
+        .in_fn
+        .as_ref()
+        .and_then(|func| facts.locals.get(func))
+        .is_some_and(|declared| declared.contains_key(&use_.name));
+    if declared_later {
+        diag.with_note("this function declares that name further down; a name is local only below its own declaration")
+    } else {
+        diag
     }
 }
 
