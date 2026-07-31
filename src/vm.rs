@@ -1,4 +1,4 @@
-use crate::compiler::{Instr, LocalArr, Opcode, Program};
+use crate::compiler::{Instr, Opcode, Program};
 use crate::diag::{Diagnostic, Span};
 use std::collections::HashMap;
 use std::io::{self, BufRead, StdinLock, Write};
@@ -91,13 +91,14 @@ impl VM {
         }
     }
 
-    /// `what` names the storage the way the source does, so the message reads
-    /// the same as the global one two arms up.
-    fn read_slot(&self, slot: usize, what: &str) -> Result<f64, Diagnostic> {
+    /// `kind` and `name` are passed apart rather than pre-joined because this
+    /// runs on every read of a local: formatting the message up front spent an
+    /// allocation on the path where there is no message to print.
+    fn read_slot(&self, slot: usize, kind: &str, name: &str) -> Result<f64, Diagnostic> {
         match self.locals.get(self.cell(slot)?) {
             Some(Some(value)) => Ok(*value),
             Some(None) => Err(self
-                .fail(format!("undefined {}", what))
+                .fail(format!("undefined {} `{}`", kind, name))
                 .with_note("its declaration runs where it is written; control never reached it")),
             None => Err(self.fail("internal error: local slot out of range")),
         }
@@ -105,14 +106,14 @@ impl VM {
 
     fn write_slot(&mut self, slot: usize, value: Option<f64>) -> Result<(), Diagnostic> {
         let cell = self.cell(slot)?;
-        let out_of_range = self.fail("internal error: local slot out of range");
-        match self.locals.get_mut(cell) {
-            Some(place) => {
-                *place = value;
-                Ok(())
-            }
-            None => Err(out_of_range),
+        // checked before indexing rather than after, so that the diagnostic is
+        // built only when it is needed -- holding one ready cost an allocation
+        // on every write of a local
+        if cell >= self.locals.len() {
+            return Err(self.fail("internal error: local slot out of range"));
         }
+        self.locals[cell] = value;
+        Ok(())
     }
 
     /// The call trace at the moment of a failure, innermost call first.
@@ -336,14 +337,14 @@ impl VM {
                     self.current_idx += 1;
                 }
                 Opcode::PUSHL(name, slot) => {
-                    let data = self.read_slot(slot, &format!("variable `{}`", name))?;
+                    let data = self.read_slot(slot, "variable", &name)?;
                     self.push(data);
                     self.current_idx += 1;
                 }
                 Opcode::STOREL(name, slot) => {
                     let data = self.pop()?;
                     // must be declared before it can be written
-                    self.read_slot(slot, &format!("variable `{}`", name))?;
+                    self.read_slot(slot, "variable", &name)?;
                     self.write_slot(slot, Some(data))?;
                     self.current_idx += 1;
                 }
@@ -358,7 +359,7 @@ impl VM {
                     let span = self.here();
                     let raw = self.pop()?;
                     let offset = check_index(raw, arr.len, &arr.name, span)?;
-                    let element = self.read_slot(arr.base + offset, &array_hint(&arr))?;
+                    let element = self.read_slot(arr.base + offset, "array", &arr.name)?;
                     self.push(element);
                     self.current_idx += 1;
                 }
@@ -368,7 +369,7 @@ impl VM {
                     let raw = self.pop()?;
                     let data = self.pop()?;
                     let offset = check_index(raw, arr.len, &arr.name, span)?;
-                    self.read_slot(arr.base + offset, &array_hint(&arr))?;
+                    self.read_slot(arr.base + offset, "array", &arr.name)?;
                     self.write_slot(arr.base + offset, Some(data))?;
                     self.current_idx += 1;
                 }
@@ -596,10 +597,6 @@ fn check_index(raw: f64, len: usize, name: &str, span: Span) -> Result<usize, Di
         .with_note(format!("valid indices are 0 to {}", len - 1)));
     }
     Ok(raw as usize)
-}
-
-fn array_hint(arr: &LocalArr) -> String {
-    format!("array `{}`", arr.name)
 }
 
 fn safe_float_to_char(f: f64) -> Option<char> {
