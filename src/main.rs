@@ -9,10 +9,11 @@ mod lexer;
 mod source;
 mod vm;
 use analyzer::analyzer;
-use cli::Exit;
+use cli::{Exit, MessageFormat, Options};
 use compiler::compiler;
-use diag::{render_all, report};
+use diag::{Diagnostic, emit_json, render_all, report};
 use lexer::lexer;
+use source::Source;
 use vm::run_opcode;
 
 fn main() -> ExitCode {
@@ -25,6 +26,20 @@ fn main() -> ExitCode {
 /// Drives the pipeline. Each stage collects every diagnostic it can find, but
 /// a failing stage stops the run: feeding a broken token stream downstream
 /// would only produce cascades of imaginary errors.
+/// The single place diagnostics leave the program, so the chosen format
+/// applies to every stage without four copies of the same branch.
+///
+/// `tally` is the "aborting due to N errors" line. It belongs to a compile
+/// stage, which reports a list of findings; a run-time failure is one event and
+/// the program did run, so there is nothing being aborted.
+fn emit(opts: &Options, source: &Source, diags: &[Diagnostic], tally: bool) {
+    match opts.message_format {
+        MessageFormat::Json => emit_json(source, diags),
+        MessageFormat::Human if tally => report(source, diags),
+        MessageFormat::Human => render_all(source, diags),
+    }
+}
+
 fn run() -> Exit {
     let opts = match cli::parse(std::env::args().skip(1)) {
         Ok(Some(opts)) => opts,
@@ -43,7 +58,7 @@ fn run() -> Exit {
     let tokens = match lexer(&source) {
         Ok(tokens) => tokens,
         Err(diags) => {
-            report(&source, &diags);
+            emit(&opts, &source, &diags, true);
             return Exit::Compile;
         }
     };
@@ -70,7 +85,7 @@ fn run() -> Exit {
         diags.iter().any(|diag| diag.is_error())
     };
     if !diags.is_empty() {
-        report(&source, &diags);
+        emit(&opts, &source, &diags, true);
     }
     if failed {
         return Exit::Compile;
@@ -82,7 +97,7 @@ fn run() -> Exit {
     let program = match compiler(tokens) {
         Ok(program) => program,
         Err(diags) => {
-            report(&source, &diags);
+            emit(&opts, &source, &diags, true);
             return Exit::Compile;
         }
     };
@@ -104,7 +119,7 @@ fn run() -> Exit {
         Err(diags) => {
             // the same rendering as a compile error, minus the tally: the
             // program did run, so there is nothing being "aborted"
-            render_all(&source, &diags);
+            emit(&opts, &source, &diags, false);
             Exit::Runtime
         }
     }

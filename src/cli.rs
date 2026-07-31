@@ -21,6 +21,8 @@ USAGE:
 
 OPTIONS:
     -c, --check                    analyse only, do not run
+        --message-format=<FMT>     how to print diagnostics: human (default)
+                                   or json, one object per line on stderr
         --dump-tokens              print the token stream and exit
         --dump-opcodes             print the compiled program and exit
         --trace                    print each instruction and the stack
@@ -51,6 +53,16 @@ impl From<Exit> for ExitCode {
     }
 }
 
+/// How source diagnostics are printed. Command line problems -- a bad flag, an
+/// unreadable file -- stay human whatever this says: they are not about the
+/// source, carry no span, and the exit code already tells a tool what happened.
+#[derive(Clone, Copy, Default, PartialEq)]
+pub enum MessageFormat {
+    #[default]
+    Human,
+    Json,
+}
+
 #[derive(Default)]
 pub struct Options {
     /// `None` means stdin
@@ -61,6 +73,7 @@ pub struct Options {
     pub trace: bool,
     pub deny_warnings: bool,
     pub verbose: bool,
+    pub message_format: MessageFormat,
 }
 
 /// `Some(options)` to carry on, `None` when `--help` / `--version` already
@@ -91,6 +104,21 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Option<Options>, Stri
                     return Err("more than one input given".to_string());
                 }
                 saw_input = true;
+            }
+            // the only option that takes a value, so it is matched by prefix
+            // rather than growing a general `--key=value` pass
+            other if other.starts_with("--message-format=") => {
+                let value = other.trim_start_matches("--message-format=");
+                opts.message_format = match value {
+                    "human" => MessageFormat::Human,
+                    "json" => MessageFormat::Json,
+                    _ => return Err(format!("unknown message format `{}`", value)),
+                };
+            }
+            "--message-format" => {
+                return Err(String::from(
+                    "`--message-format` needs a value, as in `--message-format=json`",
+                ));
             }
             other if other.starts_with('-') => {
                 return Err(format!("unknown option `{}`", other));

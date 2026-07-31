@@ -13,6 +13,8 @@ Only the program's own output goes to stdout, so `phoenix program.phx > out.txt`
 	phoenix [OPTIONS] -            read the program from stdin
 
 	-c, --check                    analyse only, do not run
+	    --message-format=<FMT>     how to print diagnostics: human (default)
+	                               or json, one object per line on stderr
 	    --dump-tokens              print the token stream and exit
 	    --dump-opcodes             print the compiled program and exit
 	    --trace                    print each instruction and the stack
@@ -22,6 +24,15 @@ Only the program's own output goes to stdout, so `phoenix program.phx > out.txt`
 	-V, --version                  print the version
 
 Exit codes: `0` success, `1` the program did not compile, `2` the program failed at run time, `64` bad command line.
+
+`--message-format=json` writes one JSON object per diagnostic, to stderr, for editors and CI rather than for reading. It covers both compile-time and run-time diagnostics, including the `note` frames of a run-time call trace. Positions are 1-based to match the human form, the end of a range is exclusive, and the offsets count `char`s rather than bytes.
+
+	{"severity":"error","message":"`s` index 4 is out of bounds (length 2)",
+	 "note":"valid indices are 0 to 1","file":"game.phx",
+	 "line_start":3,"column_start":22,"line_end":3,"column_end":24,
+	 "char_start":35,"char_end":37}
+
+Problems with the command line itself - an unknown flag, a file that cannot be read - stay in the human form whatever this is set to. They are not about the source, carry no position, and the exit code already says what happened.
 
 ## grammar
 

@@ -122,6 +122,70 @@ fn summary(diags: &[Diagnostic]) {
     }
 }
 
+/// One JSON object per line, on stderr beside the human form it replaces.
+///
+/// Line-delimited rather than one array so a consumer can read it as it
+/// arrives, and so it stays trivial to emit without pulling in a serialiser --
+/// this crate has one dependency and it is not worth a second for six fields.
+///
+/// Positions are 1-based to match the `file:line:col` of the human output, and
+/// the end is exclusive, which is the range shape editors expect. The offsets
+/// are counted in `char`s, not bytes, because that is what `Span` holds.
+pub fn emit_json(src: &Source, diags: &[Diagnostic]) {
+    for diag in diags {
+        let start = src.locate(diag.span.start);
+        let end = src.locate(diag.span.end);
+        let note = match &diag.note {
+            Some(note) => format!("\"{}\"", escape(note)),
+            None => String::from("null"),
+        };
+        eprintln!(
+            concat!(
+                r#"{{"severity":"{}","message":"{}","note":{},"file":"{}","#,
+                r#""line_start":{},"column_start":{},"line_end":{},"column_end":{},"#,
+                r#""char_start":{},"char_end":{}}}"#,
+            ),
+            severity_name(diag.severity),
+            escape(&diag.msg),
+            note,
+            escape(src.path()),
+            start.line,
+            start.col,
+            end.line,
+            end.col,
+            diag.span.start,
+            diag.span.end,
+        );
+    }
+}
+
+fn severity_name(severity: Severity) -> &'static str {
+    match severity {
+        Severity::Error => "error",
+        Severity::Warning => "warning",
+        Severity::Note => "note",
+    }
+}
+
+/// A message can carry any character the source did -- `unexpected character
+/// `"`` and `` `\` `` are both reachable -- so this has to be correct rather
+/// than merely adequate.
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if (ch as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", ch as u32)),
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
 fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
